@@ -11,7 +11,8 @@ class TileServiceActivity : Activity() {
 
         // Just starting MainActivity
         val intent = Intent(this, MainActivity::class.java)
-        startService(intent)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent)
         finish()
     }
 }
