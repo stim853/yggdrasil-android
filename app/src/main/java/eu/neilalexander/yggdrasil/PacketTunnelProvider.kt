@@ -116,6 +116,7 @@ open class PacketTunnelProvider: VpnService() {
             acquire()
         }
 
+        val jsonBytes = config.getJSONByteArray()
         val logJson = config.getJSON()
         if (logJson.has("PrivateKey")) logJson.put("PrivateKey", "***")
         if (logJson.has("GatewayPassword")) logJson.put("GatewayPassword", "***")
@@ -127,7 +128,7 @@ open class PacketTunnelProvider: VpnService() {
                 override fun protect(fd: Long) { protect(fd.toInt()) }
             })
         }
-        yggdrasil.startJSON(config.getJSONByteArray())
+        yggdrasil.startJSON(jsonBytes)
 
         val address = yggdrasil.addressString
 
