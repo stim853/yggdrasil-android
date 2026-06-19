@@ -90,4 +90,14 @@
     <string name="set_keys">Set your own key</string>
     <string name="save">Save</string>
     <string name="no_browser_found_toast">No browser found to open the URL!</string>
+    <string name="exit_node">Exit Node</string>
+    <string name="exit_node_enable">Route all traffic through exit node</string>
+    <string name="exit_node_address">SOCKS5 address</string>
+    <string name="exit_node_address_hint">200:xxxx::1</string>
+    <string name="exit_node_port">SOCKS5 port</string>
+    <string name="exit_node_username">Username</string>
+    <string name="exit_node_username_hint">optional</string>
+    <string name="exit_node_password">Password</string>
+    <string name="exit_node_password_hint">optional</string>
+    <string name="exit_node_hint">When enabled, all traffic (IPv4 and IPv6) will be routed through the specified SOCKS5 proxy over Yggdrasil. The proxy must be reachable via your Yggdrasil address.</string>
 </resources>

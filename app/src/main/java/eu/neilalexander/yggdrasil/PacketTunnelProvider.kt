@@ -1,6 +1,9 @@
 package eu.neilalexander.yggdrasil
 
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -12,6 +15,7 @@ import androidx.preference.PreferenceManager
 import eu.neilalexander.yggdrasil.YggStateReceiver.Companion.YGG_STATE_INTENT
 import mobile.Yggdrasil
 import org.json.JSONArray
+import exitnode.Exitnode
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.util.concurrent.atomic.AtomicBoolean
@@ -38,12 +42,14 @@ open class PacketTunnelProvider: VpnService() {
 
     private var readerThread: Thread? = null
     private var writerThread: Thread? = null
+    private var exitWriterThread: Thread? = null
     private var updateThread: Thread? = null
 
     private var parcel: ParcelFileDescriptor? = null
     private var readerStream: FileInputStream? = null
     private var writerStream: FileOutputStream? = null
     private var multicastLock: WifiManager.MulticastLock? = null
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -110,10 +116,21 @@ open class PacketTunnelProvider: VpnService() {
             acquire()
         }
 
-        Log.d(TAG, config.getJSON().toString())
+        val logJson = config.getJSON()
+        if (logJson.has("PrivateKey")) logJson.put("PrivateKey", "***")
+        if (logJson.has("GatewayPassword")) logJson.put("GatewayPassword", "***")
+        Log.d(TAG, logJson.toString())
+        val gatewayAddr = config.gatewayAddress
+        val hasGateway = config.exitNodeEnabled && gatewayAddr.isNotEmpty()
+        if (hasGateway) {
+            yggdrasil.setProtector(object : mobile.MobileProtector {
+                override fun protect(fd: Long) { protect(fd.toInt()) }
+            })
+        }
         yggdrasil.startJSON(config.getJSONByteArray())
 
         val address = yggdrasil.addressString
+
         val builder = Builder()
             .addAddress(address, 7)
             .addRoute("200::", 7)
@@ -124,11 +141,20 @@ open class PacketTunnelProvider: VpnService() {
             // If we don't do this the DNS-resolver just doesn't do DNS-requests with record type AAAA,
             // and we can't use DNS with Yggdrasil addresses.
             .addRoute("2000::", 128)
-            .allowFamily(OsConstants.AF_INET)
             .allowBypass()
             .setBlocking(true)
             .setMtu(yggdrasil.mtu.toInt())
             .setSession("Yggdrasil")
+
+        if (hasGateway) {
+            // Route all IPv4 and IPv6 traffic through the tunnel when gateway is set
+            builder.addAddress("10.0.0.1", 30) // faux IPv4 address for sing-tun system stack NAT
+            builder.addRoute("0.0.0.0", 0)
+            builder.addRoute("::", 0)
+        } else {
+            // Only Yggdrasil traffic, let IPv4 pass through normally
+            builder.allowFamily(OsConstants.AF_INET)
+        }
         // On Android API 29+ apps can opt-in/out to using metered networks.
         // If we don't set metered status of VPN it is considered as metered.
         // If we set it to false, then it will inherit this status from underlying network.
@@ -152,6 +178,15 @@ open class PacketTunnelProvider: VpnService() {
             builder.addRoute("2001:4860:4860::8888", 128)
         }
 
+        val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+        networkCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                Log.d(TAG, "Network available, retrying peers")
+                if (started.get()) yggdrasil.retryPeersNow()
+            }
+        }
+        cm.registerNetworkCallback(NetworkRequest.Builder().build(), networkCallback!!)
+
         parcel = builder.establish()
         val parcel = parcel
         if (parcel == null || !parcel.fileDescriptor.valid()) {
@@ -161,12 +196,18 @@ open class PacketTunnelProvider: VpnService() {
 
         readerStream = FileInputStream(parcel.fileDescriptor)
         writerStream = FileOutputStream(parcel.fileDescriptor)
-
-        readerThread = thread {
-            reader()
-        }
-        writerThread = thread {
-            writer()
+        if (hasGateway) {
+            val port = config.gatewayPort
+            val username = config.gatewayUsername
+            val password = config.gatewayPassword
+            Log.i(TAG, "Starting exitnode gateway=$gatewayAddr port=$port auth=${username.isNotEmpty()}")
+            Exitnode.start(address, gatewayAddr, port.toLong(), yggdrasil.mtu, username, password)
+            readerThread = thread { exitNodeReader() }
+            writerThread = thread { writer() }
+            exitWriterThread = thread { exitNodeWriter() }
+        } else {
+            readerThread = thread { reader() }
+            writerThread = thread { writer() }
         }
         updateThread = thread {
             updater()
@@ -182,6 +223,12 @@ open class PacketTunnelProvider: VpnService() {
             return
         }
 
+        networkCallback?.let {
+            (getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager).unregisterNetworkCallback(it)
+            networkCallback = null
+        }
+
+        Exitnode.stop()
         yggdrasil.stop()
 
         readerStream?.let {
@@ -205,6 +252,10 @@ open class PacketTunnelProvider: VpnService() {
             it.interrupt()
             writerThread = null
         }
+        exitWriterThread?.let {
+            it.interrupt()
+            exitWriterThread = null
+        }
         updateThread?.let {
             it.interrupt()
             updateThread = null
@@ -219,7 +270,7 @@ open class PacketTunnelProvider: VpnService() {
         intent.putExtra("state", STATE_DISABLED)
         LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
 
-        stopForeground(true)
+        stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         multicastLock?.release()
     }
@@ -315,6 +366,50 @@ open class PacketTunnelProvider: VpnService() {
         writerStream?.let {
             it.close()
             writerStream = null
+        }
+    }
+
+    // Reads packets from TUN and routes them:
+    //   dst in 200::/7 (first byte & 0xFE == 0x02) → yggdrasil overlay
+    //   everything else (IPv4 + non-Yggdrasil IPv6)  → exitnode SOCKS5 stack
+    private fun exitNodeReader() {
+        val b = ByteArray(65535)
+        reads@ while (started.get()) {
+            val readerStream = readerStream ?: break@reads
+            if (Thread.currentThread().isInterrupted || !readerStream.fd.valid()) break@reads
+            try {
+                val n = readerStream.read(b)
+                if (n <= 0) continue
+                // IPv6 packet: version nibble 6, header 40 bytes min, dst at bytes 24-39
+                if (n >= 40 && (b[0].toInt() and 0xF0) == 0x60) {
+                    if ((b[24].toInt() and 0xFE) == 0x02) {
+                        // 200::/7 → Yggdrasil overlay
+                        yggdrasil.sendBuffer(b, n.toLong())
+                        continue
+                    }
+                }
+                // Non-Yggdrasil (IPv4 or other IPv6) → exitnode sing-tun stack
+                Exitnode.sendPacket(b.copyOfRange(0, n))
+            } catch (e: Exception) {
+                Log.i(TAG, "Error in exitNodeReader: $e")
+                break@reads
+            }
+        }
+        readerStream?.let { it.close(); readerStream = null }
+    }
+
+    // Reads response packets produced by exitnode (sing-tun) and writes them into TUN.
+    private fun exitNodeWriter() {
+        writes@ while (started.get()) {
+            val writerStream = writerStream ?: break@writes
+            if (Thread.currentThread().isInterrupted || !writerStream.fd.valid()) break@writes
+            try {
+                val pkt = Exitnode.recvPacket() ?: break@writes
+                writerStream.write(pkt)
+            } catch (e: Exception) {
+                Log.i(TAG, "Error in exitNodeWriter: $e")
+                break@writes
+            }
         }
     }
 

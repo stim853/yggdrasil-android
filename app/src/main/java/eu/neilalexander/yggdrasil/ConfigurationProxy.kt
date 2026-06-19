@@ -101,4 +101,44 @@ object ConfigurationProxy {
                 (json.getJSONArray("MulticastInterfaces").get(0) as JSONObject).put("Password", value)
             }
         }
+
+    var exitNodeEnabled: Boolean
+        get() = json.optBoolean("ExitNodeEnabled", false)
+        set(value) {
+            updateJSON { json ->
+                json.put("ExitNodeEnabled", value)
+            }
+        }
+
+    var gatewayAddress: String
+        get() = json.optString("GatewayAddress", "")
+        set(value) {
+            updateJSON { json ->
+                json.put("GatewayAddress", value)
+            }
+        }
+
+    var gatewayPort: Int
+        get() = json.optInt("GatewayPort", 1080)
+        set(value) {
+            updateJSON { json ->
+                json.put("GatewayPort", value)
+            }
+        }
+
+    var gatewayUsername: String
+        get() = json.optString("GatewayUsername", "")
+        set(value) {
+            updateJSON { json ->
+                json.put("GatewayUsername", value)
+            }
+        }
+
+    var gatewayPassword: String
+        get() = json.optString("GatewayPassword", "")
+        set(value) {
+            updateJSON { json ->
+                json.put("GatewayPassword", value)
+            }
+        }
 }

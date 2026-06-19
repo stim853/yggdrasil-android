@@ -90,4 +90,14 @@
     <string name="set_keys">Установить свой ключ</string>
     <string name="save">Сохранить</string>
     <string name="no_browser_found_toast">Не найден браузер для открытия ссылки!</string>
+    <string name="exit_node">Выходной узел</string>
+    <string name="exit_node_enable">Направлять весь трафик через выходной узел</string>
+    <string name="exit_node_address">Адрес SOCKS5</string>
+    <string name="exit_node_address_hint">200:xxxx::1</string>
+    <string name="exit_node_port">Порт SOCKS5</string>
+    <string name="exit_node_username">Имя пользователя</string>
+    <string name="exit_node_username_hint">необязательно</string>
+    <string name="exit_node_password">Пароль</string>
+    <string name="exit_node_password_hint">необязательно</string>
+    <string name="exit_node_hint">Когда включено, весь трафик (IPv4 и IPv6) будет направлен через указанный прокси SOCKS5 поверх Yggdrasil. Прокси должен быть доступен по вашему адресу Yggdrasil.</string>
 </resources>

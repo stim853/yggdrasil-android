@@ -29,6 +29,17 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var resetConfigurationRow: LinearLayoutCompat
     private var publicKeyReset = false
 
+    private lateinit var exitNodeSwitch: Switch
+    private lateinit var exitNodeAddressEntry: EditText
+    private lateinit var exitNodePortEntry: EditText
+    private lateinit var exitNodeUsernameEntry: EditText
+    private lateinit var exitNodePasswordEntry: EditText
+    private lateinit var exitNodeAddressRow: View
+    private lateinit var exitNodePortRow: View
+    private lateinit var exitNodeUsernameRow: View
+    private lateinit var exitNodePasswordRow: View
+    private var updatingView = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
@@ -115,6 +126,49 @@ class SettingsActivity : AppCompatActivity() {
             true
         }
 
+        exitNodeSwitch = findViewById(R.id.exitNodeSwitch)
+        exitNodeAddressEntry = findViewById(R.id.exitNodeAddressEntry)
+        exitNodePortEntry = findViewById(R.id.exitNodePortEntry)
+        exitNodeUsernameEntry = findViewById(R.id.exitNodeUsernameEntry)
+        exitNodePasswordEntry = findViewById(R.id.exitNodePasswordEntry)
+        exitNodeAddressRow = findViewById(R.id.exitNodeAddressRow)
+        exitNodePortRow = findViewById(R.id.exitNodePortRow)
+        exitNodeUsernameRow = findViewById(R.id.exitNodeUsernameRow)
+        exitNodePasswordRow = findViewById(R.id.exitNodePasswordRow)
+
+        exitNodeSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (updatingView) return@setOnCheckedChangeListener
+            val v = if (isChecked) View.VISIBLE else View.GONE
+            exitNodeAddressRow.visibility = v
+            exitNodePortRow.visibility = v
+            exitNodeUsernameRow.visibility = v
+            exitNodePasswordRow.visibility = v
+            config.exitNodeEnabled = isChecked
+        }
+
+        exitNodeAddressEntry.doOnTextChanged { text, _, _, _ ->
+            if (updatingView) return@doOnTextChanged
+            config.gatewayAddress = text?.toString()?.trim() ?: ""
+        }
+
+        exitNodePortEntry.doOnTextChanged { text, _, _, _ ->
+            if (updatingView) return@doOnTextChanged
+            val port = text?.toString()?.toIntOrNull()
+            if (port != null) {
+                config.gatewayPort = port
+            }
+        }
+
+        exitNodeUsernameEntry.doOnTextChanged { text, _, _, _ ->
+            if (updatingView) return@doOnTextChanged
+            config.gatewayUsername = text?.toString() ?: ""
+        }
+
+        exitNodePasswordEntry.doOnTextChanged { text, _, _, _ ->
+            if (updatingView) return@doOnTextChanged
+            config.gatewayPassword = text?.toString() ?: ""
+        }
+
         updateView()
     }
 
@@ -132,6 +186,20 @@ class SettingsActivity : AppCompatActivity() {
             key = key.substring(key.length / 2)
         }
         publicKeyLabel.text = key
+
+        val enabled = config.exitNodeEnabled
+        val v = if (enabled) View.VISIBLE else View.GONE
+        updatingView = true
+        exitNodeSwitch.isChecked = enabled
+        exitNodeAddressRow.visibility = v
+        exitNodePortRow.visibility = v
+        exitNodeUsernameRow.visibility = v
+        exitNodePasswordRow.visibility = v
+        exitNodeAddressEntry.setText(config.gatewayAddress, TextView.BufferType.EDITABLE)
+        exitNodePortEntry.setText(config.gatewayPort.toString(), TextView.BufferType.EDITABLE)
+        exitNodeUsernameEntry.setText(config.gatewayUsername, TextView.BufferType.EDITABLE)
+        exitNodePasswordEntry.setText(config.gatewayPassword, TextView.BufferType.EDITABLE)
+        updatingView = false
     }
 
     override fun onResume() {
