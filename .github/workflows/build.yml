@@ -9,29 +9,27 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout with submodules
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
-          token: ${{ secrets.GITHUB_TOKEN }}
       
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: 'zulu'
           java-version: '17'
       
-      - name: Setup Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.22'
       
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v3
+      
+      - name: Install NDK 25
+        run: echo "y" | sudo $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --install "ndk;25.2.9519653" --sdk_root=$ANDROID_SDK_ROOT
       
       - name: Build Go library
         run: |
-          export ANDROID_HOME=$ANDROID_SDK_ROOT
+          export ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653
           go install golang.org/x/mobile/cmd/gomobile@latest
           export PATH=$PATH:$HOME/go/bin
           cd libs/yggdrasil-go
@@ -45,8 +43,7 @@ jobs:
       - name: Build APK
         run: ./gradlew assembleDebug
       
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: yggdrasil-exit-node-apk
           path: app/build/outputs/apk/debug/*.apk
