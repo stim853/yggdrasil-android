@@ -24,20 +24,17 @@ jobs:
       
       - uses: android-actions/setup-android@v3
       
-      - name: Install NDK 25
-        run: echo "y" | sudo $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --install "ndk;25.2.9519653" --sdk_root=$ANDROID_SDK_ROOT
+      - name: Install NDK 23
+        run: echo "y" | sudo $ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager --install "ndk;23.1.7779620" --sdk_root=$ANDROID_SDK_ROOT
       
-      - name: Build Go library
+      - name: Build Go library with NDK 23
         run: |
-          export ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/25.2.9519653
-          go install golang.org/x/mobile/cmd/gomobile@latest
+          export ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/23.1.7779620
           export PATH=$PATH:$HOME/go/bin
-          cd libs/yggdrasil-go
+          go install golang.org/x/mobile/cmd/gomobile@latest
           gomobile init
-          cd ../..
-          mkdir -p app/libs
           cd libs/yggdrasil-go
-          ./contrib/mobile/build -a
+          gomobile bind -target android -tags mobile -o yggdrasil.aar -ldflags="-s -w -checklinkname=0" ./contrib/mobile ./src/config
           cp yggdrasil.aar ../../app/libs/
       
       - name: Build APK
