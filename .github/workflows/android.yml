@@ -34,7 +34,7 @@ jobs:
       - name: Build library
         run: |
           cd libs/yggdrasil-go
-          gomobile bind -target android -tags mobile -o yggdrasil.aar -ldflags="-s -w -checklinkname=0" ./contrib/mobile ./src/config
+          gomobile bind -target android -androidapi 21 -tags mobile -o yggdrasil.aar -ldflags="-s -w" ./contrib/mobile ./src/config
           cp yggdrasil.aar ../app/libs/
 
       - name: Build APK
