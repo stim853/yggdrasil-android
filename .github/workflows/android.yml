@@ -1,92 +1,46 @@
 name: Build
 
-on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
-  workflow_dispatch:
-  release:
-    types: [published]
+on: workflow_dispatch
 
 jobs:
   build:
-    name: Build
-    runs-on: ubuntu-latest
-
+    runs-on: ubuntu-22.04
     steps:
-    - name: Check out
-      uses: actions/checkout@v6
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 17
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+      - uses: android-actions/setup-android@v3
 
-    - name: Check out Yggdrasil
-      uses: actions/checkout@v6
-      with:
-        repository: yggdrasil-network/yggdrasil-go
-        path: yggdrasil-go
-        ref: master
-        fetch-depth: 0
-    
-    - name: Setup Go environment
-      uses: actions/setup-go@v6
-      with:
-        go-version: "1.21"
-    
-    - name: Install gomobile
-      run: |
-        go install golang.org/x/mobile/cmd/gomobile@latest
-        ~/go/bin/gomobile init
-    
-    - name: Set up JDK 17
-      uses: actions/setup-java@v5
-      with:
-        java-version: '17'
-        distribution: 'temurin'
-        cache: gradle
-        
-    - name: Install NDK
-      uses: nttld/setup-ndk@v1
-      id: setup-ndk
-      with:
-        ndk-version: r21e
-        add-to-path: false
-      
-    - name: Build Yggdrasil
-      run: |
-        mkdir app/libs
-        cd yggdrasil-go
-        PATH=$PATH:~/go/bin/ ./contrib/mobile/build -a
-        cp {yggdrasil.aar,yggdrasil-sources.jar} ../app/libs
-      env:
-        ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+      - name: Install NDK r21e
+        run: |
+          wget -q https://dl.google.com/android/repository/android-ndk-r21e-linux-x86_64.zip
+          unzip -q android-ndk-r21e-linux-x86_64.zip
+          mkdir -p $ANDROID_SDK_ROOT/ndk
+          mv android-ndk-r21e $ANDROID_SDK_ROOT/ndk/21.4.7075529
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/21.4.7075529" >> $GITHUB_ENV
 
-    - name: Gradle build  
-      if: github.event_name != 'release' && github.ref_name != 'main'
-      run: |
-        chmod +x gradlew
-        ./gradlew buildRelease
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          gomobile init
 
-    - name: Gradle signed build
-      if: github.event_name == 'release' || github.ref_name == 'main'
-      run: |
-        echo "${{ secrets.RELEASE_KEYSTORE }}" > app/gha.keystore.asc
-        gpg -d --passphrase "${{ secrets.RELEASE_KEYSTORE_PASSWORD }}" --batch app/gha.keystore.asc > app/gha.jks
-        chmod +x gradlew
-        ./gradlew assembleYggdrasil
+      - name: Build library
+        run: |
+          cd libs/yggdrasil-go
+          gomobile bind -target android -tags mobile -o yggdrasil.aar -ldflags="-s -w -checklinkname=0" ./contrib/mobile ./src/config
+          cp yggdrasil.aar ../app/libs/
 
-    - name: Upload build artifact
-      if: github.event_name == 'release' || github.ref_name == 'main'
-      uses: actions/upload-artifact@v7
-      with:
-        name: yggdrasil-android
-        path: app/build/outputs/apk/yggdrasil/app-yggdrasil.apk
-        
-    - name: Upload release artifact
-      if: github.event_name == 'release'
-      uses: actions/upload-release-asset@v1
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: app/build/outputs/apk/yggdrasil/app-yggdrasil.apk
-        asset_name: yggdrasil-android.apk
-        asset_content_type: application/vnd.android.package-archive
+      - name: Build APK
+        run: ./gradlew assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yggdrasil-exit-node-apk
+          path: app/build/outputs/apk/debug/*.apk
