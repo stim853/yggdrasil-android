@@ -1,0 +1,49 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ exit-node ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+      
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      
+      - name: Build Go library
+        run: |
+          cd libs/yggdrasil-go
+          go mod tidy
+          cd ../..
+          mkdir -p app/libs
+          cd libs/yggdrasil-go
+          ./contrib/mobile/build -a
+          cp yggdrasil.aar ../../app/libs/
+      
+      - name: Build APK
+        run: ./gradlew assembleDebug
+      
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: yggdrasil-exit-node-apk
+          path: app/build/outputs/apk/debug/*.apk
