@@ -31,8 +31,11 @@ jobs:
       
       - name: Build Go library
         run: |
+          export ANDROID_HOME=$ANDROID_SDK_ROOT
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          export PATH=$PATH:$HOME/go/bin
           cd libs/yggdrasil-go
-          go mod tidy
+          gomobile init
           cd ../..
           mkdir -p app/libs
           cd libs/yggdrasil-go
