@@ -115,7 +115,6 @@ open class PacketTunnelProvider: VpnService() {
         val notification = createServiceNotification(this, State.Enabled)
         startForeground(SERVICE_NOTIFICATION_ID, notification)
 
-        // Acquire multicast lock
         val wifi = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
         multicastLock = wifi.createMulticastLock("Yggdrasil").apply {
             setReferenceCounted(false)
@@ -141,12 +140,6 @@ open class PacketTunnelProvider: VpnService() {
         val builder = Builder()
             .addAddress(address, 7)
             .addRoute("200::", 7)
-            // We do this to trick the DNS-resolver into thinking that we have "regular" IPv6,
-            // and therefore we need to resolve AAAA DNS-records.
-            // See: https://android.googlesource.com/platform/bionic/+/refs/heads/master/libc/dns/net/getaddrinfo.c#1935
-            // and: https://android.googlesource.com/platform/bionic/+/refs/heads/master/libc/dns/net/getaddrinfo.c#365
-            // If we don't do this the DNS-resolver just doesn't do DNS-requests with record type AAAA,
-            // and we can't use DNS with Yggdrasil addresses.
             .addRoute("2000::", 128)
             .allowBypass()
             .setBlocking(true)
@@ -154,18 +147,12 @@ open class PacketTunnelProvider: VpnService() {
             .setSession("Yggdrasil")
 
         if (hasGateway) {
-            // Route all IPv4 and IPv6 traffic through the tunnel when gateway is set
-            builder.addAddress("10.0.0.1", 30) // faux IPv4 address for sing-tun system stack NAT
+            builder.addAddress("10.0.0.1", 30)
             builder.addRoute("0.0.0.0", 0)
             builder.addRoute("::", 0)
         } else {
-            // Only Yggdrasil traffic, let IPv4 pass through normally
             builder.allowFamily(OsConstants.AF_INET)
         }
-        // On Android API 29+ apps can opt-in/out to using metered networks.
-        // If we don't set metered status of VPN it is considered as metered.
-        // If we set it to false, then it will inherit this status from underlying network.
-        // See: https://developer.android.com/reference/android/net/VpnService.Builder#setMetered(boolean)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setMetered(false)
         }
@@ -233,6 +220,12 @@ open class PacketTunnelProvider: VpnService() {
             return
         }
 
+        readerThread?.let { it.interrupt(); readerThread = null }
+        writerThread?.let { it.interrupt(); writerThread = null }
+        exitWriterThread?.let { it.interrupt(); exitWriterThread = null }
+        updateThread?.let { it.interrupt(); updateThread = null }
+        peerUpdaterThread?.let { it.interrupt(); peerUpdaterThread = null }
+
         networkCallback?.let {
             (getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager).unregisterNetworkCallback(it)
             networkCallback = null
@@ -252,27 +245,6 @@ open class PacketTunnelProvider: VpnService() {
         parcel?.let {
             it.close()
             parcel = null
-        }
-
-        readerThread?.let {
-            it.interrupt()
-            readerThread = null
-        }
-        writerThread?.let {
-            it.interrupt()
-            writerThread = null
-        }
-        exitWriterThread?.let {
-            it.interrupt()
-            exitWriterThread = null
-        }
-        updateThread?.let {
-            it.interrupt()
-            updateThread = null
-        }
-        peerUpdaterThread?.let {
-            it.interrupt()
-            peerUpdaterThread = null
         }
 
         var intent = Intent(STATE_INTENT)
@@ -341,14 +313,14 @@ open class PacketTunnelProvider: VpnService() {
     }
 
     private fun peerUpdater() {
-        try {
-            Thread.sleep(300000)
-        } catch (_: InterruptedException) {
-            return
-        }
         updates@ while (started.get()) {
             try {
-                val peersJson = yggdrasil.peersJSON ?: break@updates
+                Thread.sleep(60000)
+            } catch (_: InterruptedException) {
+                return
+            }
+            try {
+                val peersJson = yggdrasil.peersJSON ?: continue
                 val peers = JSONArray(peersJson)
                 var upCount = 0
                 var downCount = 0
@@ -356,48 +328,59 @@ open class PacketTunnelProvider: VpnService() {
                     val peer = peers.getJSONObject(i)
                     if (peer.getBoolean("Up")) upCount++ else downCount++
                 }
-                if (downCount >= 2 && peers.length() < 3) {
+                if (downCount >= 2 && upCount < 3) {
+                    Log.i(TAG, "Too many peers down ($downCount), fetching new ones...")
                     try {
                         val url = URL("https://publicpeers.neilalexander.dev/data/peers.json")
                         val conn = url.openConnection() as HttpURLConnection
-                        conn.connectTimeout = 10000
-                        conn.readTimeout = 10000
-                        val response = conn.inputStream.bufferedReader().readText()
-                        val candidates = JSONArray(response)
-                        val newPeers = mutableListOf<String>()
-                        for (i in 0 until candidates.length()) {
-                            val candidate = candidates.getJSONObject(i)
-                            val location = candidate.optString("location", "")
-                            val uri = candidate.optString("uri", "")
-                            if ((location.contains("Europe") || location.contains("Russia")) && uri.startsWith("tcp://")) {
-                                try {
-                                    val hostPort = uri.removePrefix("tcp://")
-                                    val keyIdx = hostPort.indexOf('?')
-                                    val addr = if (keyIdx > 0) hostPort.substring(0, keyIdx) else hostPort
-                                    val colonIdx = addr.lastIndexOf(':')
-                                    if (colonIdx > 0 && colonIdx > addr.lastIndexOf(']')) {
-                                        val host = addr.substring(0, colonIdx)
-                                        val port = addr.substring(colonIdx + 1).toInt()
-                                        Socket().use { sock ->
-                                            sock.connect(InetSocketAddress(host, port), 3000)
+                        try {
+                            conn.connectTimeout = 10000
+                            conn.readTimeout = 10000
+                            val responseCode = conn.responseCode
+                            if (responseCode != HttpURLConnection.HTTP_OK) {
+                                Log.w(TAG, "Peer list HTTP $responseCode")
+                                continue
+                            }
+                            val response = conn.inputStream.bufferedReader().readText()
+                            val candidates = JSONArray(response)
+                            val newPeers = mutableListOf<String>()
+                            for (i in 0 until candidates.length()) {
+                                val candidate = candidates.getJSONObject(i)
+                                val location = candidate.optString("location", "")
+                                val uri = candidate.optString("uri", "")
+                                if ((location.contains("Europe") || location.contains("Russia")) && uri.startsWith("tcp://")) {
+                                    try {
+                                        val hostPort = uri.removePrefix("tcp://")
+                                        val keyIdx = hostPort.indexOf('?')
+                                        val addr = if (keyIdx > 0) hostPort.substring(0, keyIdx) else hostPort
+                                        val colonIdx = addr.lastIndexOf(':')
+                                        if (colonIdx > 0 && colonIdx > addr.lastIndexOf(']')) {
+                                            val host = addr.substring(0, colonIdx)
+                                            val port = addr.substring(colonIdx + 1).toInt()
+                                            Socket().use { sock ->
+                                                sock.connect(InetSocketAddress(host, port), 3000)
+                                            }
+                                            newPeers.add(uri)
                                         }
-                                        newPeers.add(uri)
-                                    }
-                                } catch (_: Exception) { }
+                                    } catch (_: Exception) { }
+                                }
                             }
-                        }
-                        for (i in 0 until peers.length()) {
-                            val peer = peers.getJSONObject(i)
-                            if (!peer.getBoolean("Up")) {
+                            for (i in 0 until peers.length()) {
+                                val peer = peers.getJSONObject(i)
+                                if (!peer.getBoolean("Up")) {
+                                    try {
+                                        yggdrasil.removePeer(peer.getString("URI"))
+                                    } catch (_: Exception) { }
+                                }
+                            }
+                            for (uri in newPeers) {
                                 try {
-                                    yggdrasil.removePeer(peer.getString("URI"))
+                                    yggdrasil.addPeer(uri)
                                 } catch (_: Exception) { }
                             }
-                        }
-                        for (uri in newPeers) {
-                            try {
-                                yggdrasil.addPeer(uri)
-                            } catch (_: Exception) { }
+                            Log.i(TAG, "Peers updated: removed $downCount dead, added ${newPeers.size} new")
+                        } finally {
+                            conn.disconnect()
                         }
                     } catch (e: Exception) {
                         Log.e(TAG, "Failed to update peers: $e")
@@ -405,12 +388,6 @@ open class PacketTunnelProvider: VpnService() {
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error in peerUpdater: $e")
-            }
-            if (Thread.currentThread().isInterrupted) break@updates
-            try {
-                Thread.sleep(300000)
-            } catch (_: InterruptedException) {
-                return
             }
         }
     }
@@ -445,8 +422,6 @@ open class PacketTunnelProvider: VpnService() {
             } catch (e: Exception) {
                 Log.i(TAG, "Error in write: $e")
                 if (e.toString().contains("ENOBUFS")) {
-                    //TODO Check this by some error code
-                    //More info about this: https://github.com/AdguardTeam/AdguardForAndroid/issues/724
                     continue
                 }
                 break@writes
@@ -458,9 +433,6 @@ open class PacketTunnelProvider: VpnService() {
         }
     }
 
-    // Reads packets from TUN and routes them:
-    //   dst in 200::/7 (first byte & 0xFE == 0x02) → yggdrasil overlay
-    //   everything else (IPv4 + non-Yggdrasil IPv6)  → exitnode SOCKS5 stack
     private fun exitNodeReader() {
         val b = ByteArray(65535)
         reads@ while (started.get()) {
@@ -469,15 +441,12 @@ open class PacketTunnelProvider: VpnService() {
             try {
                 val n = readerStream.read(b)
                 if (n <= 0) continue
-                // IPv6 packet: version nibble 6, header 40 bytes min, dst at bytes 24-39
                 if (n >= 40 && (b[0].toInt() and 0xF0) == 0x60) {
                     if ((b[24].toInt() and 0xFE) == 0x02) {
-                        // 200::/7 → Yggdrasil overlay
                         yggdrasil.sendBuffer(b, n.toLong())
                         continue
                     }
                 }
-                // Non-Yggdrasil (IPv4 or other IPv6) → exitnode sing-tun stack
                 Exitnode.sendPacket(b.copyOfRange(0, n))
             } catch (e: Exception) {
                 Log.i(TAG, "Error in exitNodeReader: $e")
@@ -487,7 +456,6 @@ open class PacketTunnelProvider: VpnService() {
         readerStream?.let { it.close(); readerStream = null }
     }
 
-    // Reads response packets produced by exitnode (sing-tun) and writes them into TUN.
     private fun exitNodeWriter() {
         writes@ while (started.get()) {
             val writerStream = writerStream ?: break@writes
