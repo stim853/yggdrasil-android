@@ -25,11 +25,12 @@ jobs:
         run: |
           go install golang.org/x/mobile/cmd/gomobile@latest
           gomobile init
-      - name: Patch mobile.go with net/url import and AddPeer/RemovePeer
+      - name: Patch mobile.go with AddPeer/RemovePeer
         run: |
           cd libs/yggdrasil-go
-          sed -i 's|"regexp"|"regexp"\n\t"net/url"|' contrib/mobile/mobile.go
-          printf '\nfunc (m *Yggdrasil) AddPeer(uri string) error {\n\tu, err := url.Parse(uri)\n\tif err != nil { return err }\n\treturn m.core.AddPeer(u, "")\n}\nfunc (m *Yggdrasil) RemovePeer(uri string) error {\n\tu, err := url.Parse(uri)\n\tif err != nil { return err }\n\treturn m.core.RemovePeer(u, "")\n}\n' >> contrib/mobile/mobile.go
+          cat contrib/mobile/mobile.go | sed '/"regexp"/a\    "net/url"' > /tmp/mobile_patched.go
+          mv /tmp/mobile_patched.go contrib/mobile/mobile.go
+          printf '\nfunc (m *Yggdrasil) AddPeer(uri string) error {\n\tu, err := url.Parse(uri)\n\tif err != nil { return err }\n\treturn m.core.AddPeer(u, "")\n}\n\nfunc (m *Yggdrasil) RemovePeer(uri string) error {\n\tu, err := url.Parse(uri)\n\tif err != nil { return err }\n\treturn m.core.RemovePeer(u, "")\n}\n' >> contrib/mobile/mobile.go
       - name: Build AAR
         run: |
           cd libs/yggdrasil-go
