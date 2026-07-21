@@ -21,6 +21,29 @@ jobs:
         run: |
           go install golang.org/x/mobile/cmd/gomobile@latest
           gomobile init
+      - name: Patch mobile.go with AddPeer/RemovePeer
+        run: |
+          cd libs/yggdrasil-go
+          cat >> contrib/mobile/mobile.go << 'PEEOF'
+
+// AddPeer adds a peer dynamically. URI format: tcp://host:port or tls://host:port
+func (m *Yggdrasil) AddPeer(uri string) error {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return err
+	}
+	return m.core.AddPeer(u, "")
+}
+
+// RemovePeer removes a peer dynamically.
+func (m *Yggdrasil) RemovePeer(uri string) error {
+	u, err := url.Parse(uri)
+	if err != nil {
+		return err
+	}
+	return m.core.RemovePeer(u, "")
+}
+PEEOF
       - name: Build AAR
         run: |
           cd libs/yggdrasil-go
