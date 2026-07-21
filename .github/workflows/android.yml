@@ -1,5 +1,8 @@
 name: Build
-on: workflow_dispatch
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
 jobs:
   build:
     runs-on: ubuntu-22.04
@@ -26,7 +29,6 @@ jobs:
           cd libs/yggdrasil-go
           cat >> contrib/mobile/mobile.go << 'PEEOF'
 
-// AddPeer adds a peer dynamically. URI format: tcp://host:port or tls://host:port
 func (m *Yggdrasil) AddPeer(uri string) error {
 	u, err := url.Parse(uri)
 	if err != nil {
@@ -35,7 +37,6 @@ func (m *Yggdrasil) AddPeer(uri string) error {
 	return m.core.AddPeer(u, "")
 }
 
-// RemovePeer removes a peer dynamically.
 func (m *Yggdrasil) RemovePeer(uri string) error {
 	u, err := url.Parse(uri)
 	if err != nil {
