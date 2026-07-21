@@ -18,8 +18,13 @@ import org.json.JSONArray
 import exitnode.Exitnode
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Socket
+import java.net.URL
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
+import org.json.JSONObject
 
 
 private const val TAG = "PacketTunnelProvider"
@@ -44,6 +49,7 @@ open class PacketTunnelProvider: VpnService() {
     private var writerThread: Thread? = null
     private var exitWriterThread: Thread? = null
     private var updateThread: Thread? = null
+    private var peerUpdaterThread: Thread? = null
 
     private var parcel: ParcelFileDescriptor? = null
     private var readerStream: FileInputStream? = null
@@ -213,6 +219,9 @@ open class PacketTunnelProvider: VpnService() {
         updateThread = thread {
             updater()
         }
+        peerUpdaterThread = thread {
+            peerUpdater()
+        }
 
         var intent = Intent(YGG_STATE_INTENT)
         intent.putExtra("state", STATE_ENABLED)
@@ -260,6 +269,10 @@ open class PacketTunnelProvider: VpnService() {
         updateThread?.let {
             it.interrupt()
             updateThread = null
+        }
+        peerUpdaterThread?.let {
+            it.interrupt()
+            peerUpdaterThread = null
         }
 
         var intent = Intent(STATE_INTENT)
@@ -324,6 +337,81 @@ open class PacketTunnelProvider: VpnService() {
                 break@updates
             }
             if (sleep()) return
+        }
+    }
+
+    private fun peerUpdater() {
+        try {
+            Thread.sleep(300000)
+        } catch (_: InterruptedException) {
+            return
+        }
+        updates@ while (started.get()) {
+            try {
+                val peersJson = yggdrasil.peersJSON ?: break@updates
+                val peers = JSONArray(peersJson)
+                var upCount = 0
+                var downCount = 0
+                for (i in 0 until peers.length()) {
+                    val peer = peers.getJSONObject(i)
+                    if (peer.getBoolean("Up")) upCount++ else downCount++
+                }
+                if (downCount >= 2 && peers.length() < 3) {
+                    try {
+                        val url = URL("https://publicpeers.neilalexander.dev/data/peers.json")
+                        val conn = url.openConnection() as HttpURLConnection
+                        conn.connectTimeout = 10000
+                        conn.readTimeout = 10000
+                        val response = conn.inputStream.bufferedReader().readText()
+                        val candidates = JSONArray(response)
+                        val newPeers = mutableListOf<String>()
+                        for (i in 0 until candidates.length()) {
+                            val candidate = candidates.getJSONObject(i)
+                            val location = candidate.optString("location", "")
+                            val uri = candidate.optString("uri", "")
+                            if ((location.contains("Europe") || location.contains("Russia")) && uri.startsWith("tcp://")) {
+                                try {
+                                    val hostPort = uri.removePrefix("tcp://")
+                                    val keyIdx = hostPort.indexOf('?')
+                                    val addr = if (keyIdx > 0) hostPort.substring(0, keyIdx) else hostPort
+                                    val colonIdx = addr.lastIndexOf(':')
+                                    if (colonIdx > 0 && colonIdx > addr.lastIndexOf(']')) {
+                                        val host = addr.substring(0, colonIdx)
+                                        val port = addr.substring(colonIdx + 1).toInt()
+                                        Socket().use { sock ->
+                                            sock.connect(InetSocketAddress(host, port), 3000)
+                                        }
+                                        newPeers.add(uri)
+                                    }
+                                } catch (_: Exception) { }
+                            }
+                        }
+                        for (i in 0 until peers.length()) {
+                            val peer = peers.getJSONObject(i)
+                            if (!peer.getBoolean("Up")) {
+                                try {
+                                    yggdrasil.removePeer(peer.getString("URI"))
+                                } catch (_: Exception) { }
+                            }
+                        }
+                        for (uri in newPeers) {
+                            try {
+                                yggdrasil.addPeer(uri)
+                            } catch (_: Exception) { }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to update peers: $e")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in peerUpdater: $e")
+            }
+            if (Thread.currentThread().isInterrupted) break@updates
+            try {
+                Thread.sleep(300000)
+            } catch (_: InterruptedException) {
+                return
+            }
         }
     }
 
