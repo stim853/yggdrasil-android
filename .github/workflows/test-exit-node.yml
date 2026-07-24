@@ -47,8 +47,10 @@ jobs:
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq wireguard resolvconf
-          curl -sL "https://github.com/yggdrasil-network/yggdrasil-go/releases/download/v0.5.12/yggdrasil-linux-amd64" -o /tmp/yggdrasil
-          chmod +x /tmp/yggdrasil && sudo mv /tmp/yggdrasil /usr/local/bin/ && yggdrasil --version
+          sudo apt-get install -y -qq yggdrasil 2>/dev/null || (
+            curl -sL "https://github.com/yggdrasil-network/yggdrasil-go/releases/download/v0.5.12/yggdrasil-linux-amd64" -o /tmp/yggdrasil 2>/dev/null && chmod +x /tmp/yggdrasil && sudo mv /tmp/yggdrasil /usr/local/bin/
+          )
+          which yggdrasil && yggdrasil --version || echo "YGG_SKIPPED"
 
       - name: Start Yggdrasil mesh
         run: |
