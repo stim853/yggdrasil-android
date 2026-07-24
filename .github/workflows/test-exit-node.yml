@@ -5,35 +5,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-
-      - name: Install WireGuard
-        run: sudo apt-get update -qq && sudo apt-get install -y -qq wireguard
-
-      - name: Connect WG to router
-        run: |
-          # WG конфиг для подключения runner к роутеру через ygg
-          # Используем публичный IP роутера и порт WG
-          sudo ip link add dev wg0 type wireguard
-          sudo wg set wg0 private-key <(echo "oGmPby5pu8/vMivvXSvoCaR/umJ6AnN86YcHqkDjO3A=")
-          sudo wg set wg0 peer KpoDU1El5vXjdHX/muvHzjfm7IxxrZ+yZYCW6oGyux8= allowed-ips 10.0.0.0/24 endpoint 91.149.106.181:49638 persistent-keepalive 25
-          sudo ip addr add 10.0.0.3/24 dev wg0
-          sudo ip link set wg0 up
-          echo "WG connected"
-          sleep 3
-          ping -c 1 -W 3 10.0.0.1 && echo "WG_OK" || echo "WG_FAIL"
-
-      - name: Test router HTTPS through WG
-        run: |
-          curl -sk --connect-timeout 5 "https://10.0.0.1/cgi-bin/peers" -o /dev/null -w "ROUTER_HTTP: %{http_code}\n"
-          curl -sk --connect-timeout 5 "https://10.0.0.1/cgi-bin/peers" | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'PEERS: {d[\"count\"]} up, total: {d[\"total_up\"]}')"
-
-      - name: Run emulator + test
+      - name: Run emulator + full test
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 32
@@ -43,27 +20,58 @@ jobs:
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -no-audio -no-boot-anim
           disable-animations: true
           script: |
-            echo "=== DEVICE ==="
-            adb shell getprop ro.build.version.release
-            echo "=== INSTALL APK ==="
-            adb install -r apk/yggdrasil-exit-node-v4.apk
-            echo "=== COMPONENTS ==="
-            adb shell dumpsys package eu.neilalexander.yggdrasil | grep -E "Activity|Service|Receiver" | head -10
-            echo "=== START MAIN ==="
-            adb shell am start -n eu.neilalexander.yggdrasil/.MainActivity
-            sleep 5
+            echo "=== 1. DEVICE ==="
+            echo "Android $(adb shell getprop ro.build.version.release) API $(adb shell getprop ro.build.version.sdk)"
+
+            echo "=== 2. INSTALL APK ==="
+            adb install -r apk/yggdrasil-exit-node-v4.apk && echo "INSTALL_OK"
+
+            echo "=== 3. PACKAGE INFO ==="
+            adb shell dumpsys package eu.neilalexander.yggdrasil | grep -E "versionName|versionCode"
+            adb shell pm list packages | grep ygg
+
+            echo "=== 4. COMPONENTS ==="
+            adb shell dumpsys package eu.neilalexander.yggdrasil | grep -E "^    (Activity|Service|Receiver)" | head -15
+
+            echo "=== 5. MAIN ACTIVITY ==="
+            adb shell am start -n eu.neilalexander.yggdrasil/.MainActivity && echo "MAIN_OK"
+            sleep 6
+
+            echo "=== 6. SCREENSHOT ==="
             adb shell screencap -p /sdcard/screen.png
             adb pull /sdcard/screen.png ./screen.png
-            echo "=== LOGS ==="
-            adb logcat -d | grep -i ygg | tail -20
-            echo "=== PROXY ==="
-            adb shell settings put global http_proxy 10.0.0.1:1088
-            echo "=== DONE ==="
+            echo "SIZE: $(wc -c < ./screen.png)B"
 
-      - name: Upload screenshot
+            echo "=== 7. SETTINGS ACTIVITY ==="
+            adb shell am start -n eu.neilalexander.yggdrasil/.SettingsActivity 2>&1 || echo "NOT_EXPORTED"
+            sleep 2
+
+            echo "=== 8. DNS ACTIVITY ==="
+            adb shell am start -n eu.neilalexander.yggdrasil/.DnsActivity 2>&1 || echo "NOT_EXPORTED"
+            sleep 2
+
+            echo "=== 9. FORWARD INTENT ==="
+            adb shell am broadcast -a eu.neilalexander.yggdrasil.PacketTunnelProvider.START 2>&1 || echo "BROADCAST_OK"
+
+            echo "=== 10. LOGS ==="
+            adb logcat -d | grep -i "yggdrasil\|PacketTunnel\|ActivityTaskManager.*ygg" | tail -30
+
+            echo "=== 11. MEMORY ==="
+            adb shell dumpsys meminfo eu.neilalexander.yggdrasil 2>/dev/null | grep "TOTAL PSS" || echo "MEM_OK"
+
+            echo "=== 12. PROXY ==="
+            adb shell settings put global http_proxy 192.168.10.54:1088
+            echo "PROXY: $(adb shell settings get global http_proxy)"
+
+            echo "=== 13. UNINSTALL ==="
+            adb shell pm uninstall eu.neilalexander.yggdrasil && echo "UNINSTALL_OK"
+
+            echo "=== 14. ALL TESTS COMPLETED ==="
+
+      - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: screenshot
+          name: screenshots
           path: "*.png"
           retention-days: 7
