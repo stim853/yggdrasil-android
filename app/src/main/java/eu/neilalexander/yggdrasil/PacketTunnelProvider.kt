@@ -171,15 +171,11 @@ open class PacketTunnelProvider: VpnService() {
         }
 
         val preferences = PreferenceManager.getDefaultSharedPreferences(this.baseContext)
-        val serverString = preferences.getString(KEY_DNS_SERVERS, "")
-        if (serverString!!.isNotEmpty()) {
-            val servers = serverString.split(",")
-            if (servers.isNotEmpty()) {
-                servers.forEach {
-                    Log.i(TAG, "Using DNS server $it")
-                    builder.addDnsServer(it)
-                }
-            }
+        val serverString = preferences.getString(KEY_DNS_SERVERS, "9.9.9.9,149.112.112.112")
+        val servers = serverString!!.split(",").filter { it.isNotBlank() }
+        servers.forEach {
+            Log.i(TAG, "Using DNS server $it")
+            builder.addDnsServer(it.trim())
         }
         if (preferences.getBoolean(KEY_ENABLE_CHROME_FIX, false)) {
             builder.addRoute("2001:4860:4860::8888", 128)
