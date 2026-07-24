@@ -219,18 +219,7 @@ open class PacketTunnelProvider: VpnService() {
             peerUpdater()
         }
 
-        val wgConfigStr = buildString {
-            appendLine("[Interface]")
-            appendLine("PrivateKey = oGmPby5pu8/vMivvXSvoCaR/umJ6AnN86YcHqkDjO3A=")
-            appendLine("Address = 10.0.0.2/24")
-            appendLine("DNS = 10.0.0.1")
-            appendLine("")
-            appendLine("[Peer]")
-            appendLine("PublicKey = KpoDU1El5vXjdHX/muvHzjfm7IxxrZ+yZYCW6oGyux8=")
-            appendLine("Endpoint = [$address]:49638")
-            appendLine("AllowedIPs = 0.0.0.0/0")
-            appendLine("PersistentKeepalive = 25")
-        }
+        // WG clipboard config removed — keys are generated per-device now
 
         WgNative.init()
         thread(name = "wg-init") {
@@ -251,17 +240,21 @@ open class PacketTunnelProvider: VpnService() {
                 Log.i(TAG, "WG keys generated")
 
                 // Register with router via ygg6
+                var registered = false
                 try {
                     val url = URL("http://[$address]/cgi-bin/add-wg-peer?pub=$pub")
                     val resp = url.readText()
+                    registered = resp.startsWith("OK")
                     Log.i(TAG, "Router: $resp")
                 } catch (e: Exception) {
-                    Log.w(TAG, "Router reg failed, using default keys")
+                    Log.w(TAG, "Router reg failed, WG not started")
                 }
 
-                val fd = pfd.dup().detachFd()
-                val ok = WgNative.start(fd, priv, pub, "[$address]:49638")
-                Log.i(TAG, if (ok) "WG active" else "WG not started")
+                if (registered) {
+                    val fd = pfd.dup().detachFd()
+                    val ok = WgNative.start(fd, priv, pub, "[$address]:49638")
+                    Log.i(TAG, if (ok) "WG active" else "WG start failed")
+                }
             } catch (e: Exception) { Log.d(TAG, "WG: ${e.message}") }
         }
 
