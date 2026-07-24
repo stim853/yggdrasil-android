@@ -15,6 +15,13 @@ import android.system.OsConstants
 import android.util.Log
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.preference.PreferenceManager
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
+import javax.net.ssl.HostnameVerifier
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 import eu.neilalexander.yggdrasil.YggStateReceiver.Companion.YGG_STATE_INTENT
 import mobile.Yggdrasil
 import org.json.JSONArray
@@ -335,22 +342,18 @@ open class PacketTunnelProvider: VpnService() {
     }
 
     private fun peerUpdater() {
-        data class PeerResult(val uri: String, val latencyMs: Long, val proto: String)
-
         val MAX_PEERS = 5
+        val ROUTER_YGG6 = "200:5d25:1a4d:7ec0:8802:cab1:64fe:ab7c"
+        val ROUTER_PEERS_URL = "https://[$ROUTER_YGG6]/cgi-bin/peers"
+
         val pm = getSystemService(POWER_SERVICE) as PowerManager
-        var skipped = 0
 
         updates@ while (started.get()) {
             try {
                 if (!pm.isInteractive || pm.isPowerSaveMode) {
-                    skipped++
-                    if (skipped < 6) {
-                        Thread.sleep(60000)
-                        continue
-                    }
+                    Thread.sleep(300000)
+                    continue
                 }
-                skipped = 0
                 Thread.sleep(300000)
             } catch (_: InterruptedException) {
                 return
@@ -369,65 +372,58 @@ open class PacketTunnelProvider: VpnService() {
                     }
                 }
                 val total = upCount + downCount
+
+                // Remove dead peers immediately
+                for (uri in downPeers) {
+                    try { yggdrasil.removePeer(uri) } catch (_: Exception) { }
+                }
+
+                // Only update if we have too few peers or too many dead
                 if (downCount < 1 && total >= 3) continue
 
-                Log.i(TAG, "Peers: $upCount up, $downCount down. Scanning...")
+                Log.i(TAG, "Peers: $upCount up, $downCount down. Fetching from router...")
                 try {
-                    val url = URL("https://publicpeers.neilalexander.dev/data/peers.json")
-                    val conn = url.openConnection() as HttpURLConnection
-                    try {
-                        conn.connectTimeout = 10000
-                        conn.readTimeout = 10000
-                        if (conn.responseCode != HttpURLConnection.HTTP_OK) continue
-                        val response = conn.inputStream.bufferedReader().readText()
-                        val candidates = JSONArray(response)
-                        val tested = mutableListOf<PeerResult>()
+                    val trustAll = arrayOf<TrustManager>(object : X509TrustManager {
+                        override fun checkClientTrusted(certs: Array<X509Certificate>, authType: String) {}
+                        override fun checkServerTrusted(certs: Array<X509Certificate>, authType: String) {}
+                        override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+                    })
+                    val sslContext = SSLContext.getInstance("TLS")
+                    sslContext.init(null, trustAll, SecureRandom())
+                    val url = URL(ROUTER_PEERS_URL)
+                    val conn = url.openConnection() as HttpsURLConnection
+                    conn.sslSocketFactory = sslContext.socketFactory
+                    conn.hostnameVerifier = HostnameVerifier { _, _ -> true }
+                    conn.connectTimeout = 10000
+                    conn.readTimeout = 10000
+                    if (conn.responseCode != HttpURLConnection.HTTP_OK) continue
+                    val response = conn.inputStream.bufferedReader().readText()
+                    conn.disconnect()
 
-                        for (i in 0 until candidates.length()) {
-                            val candidate = candidates.getJSONObject(i)
-                            val location = candidate.optString("location", "")
-                            val uri = candidate.optString("uri", "")
-                            if (!location.contains("Europe") && !location.contains("Russia")) continue
-                            if (!uri.startsWith("tcp://") && !uri.startsWith("quic://") && !uri.startsWith("tls://")) continue
-                            val proto = uri.substring(0, uri.indexOf("://"))
-                            val hostPort = uri.substring(uri.indexOf("://") + 3)
-                            val keyIdx = hostPort.indexOf('?')
-                            val addr = if (keyIdx > 0) hostPort.substring(0, keyIdx) else hostPort
-                            val colonIdx = addr.lastIndexOf(':')
-                            if (colonIdx <= 0 || colonIdx <= addr.lastIndexOf(']')) continue
-                            val host = addr.substring(0, colonIdx)
-                            val port = addr.substring(colonIdx + 1).toIntOrNull() ?: continue
-                            try {
-                                val start = System.currentTimeMillis()
-                                Socket().use { sock ->
-                                    sock.connect(InetSocketAddress(host, port), 2000)
-                                    tested.add(PeerResult(uri, System.currentTimeMillis() - start, proto))
-                                }
-                            } catch (_: Exception) { }
-                        }
-                        tested.sortBy { it.latencyMs }
+                    val routerPeers = JSONObject(response)
+                    val candidates = routerPeers.getJSONArray("peers")
+                    val selected = linkedSetOf<String>()
 
-                        val selected = linkedSetOf<String>()
-                        for (p in tested) {
-                            if (p.proto == "quic" && selected.size < MAX_PEERS) selected.add(p.uri)
-                        }
-                        for (p in tested) {
-                            if (p.proto == "tls" && selected.size < MAX_PEERS) selected.add(p.uri)
-                        }
-                        for (p in tested) {
-                            if (p.proto == "tcp" && p.latencyMs < 500 && selected.size < MAX_PEERS) selected.add(p.uri)
-                        }
+                    for (i in 0 until candidates.length()) {
+                        if (selected.size >= MAX_PEERS) break
+                        val p = candidates.getJSONObject(i)
+                        val uri = p.optString("uri", "")
+                        val lat = p.optDouble("latency_ms", 999.0)
+                        val proto = p.optString("protocol", "")
 
-                        for (uri in downPeers) try { yggdrasil.removePeer(uri) } catch (_: Exception) { }
+                        if (uri.isEmpty() || lat > 200) continue
+                        if (proto == "ws" || proto == "wss") continue
 
-                        var added = 0
-                        for (uri in selected) {
-                            try { yggdrasil.addPeer(uri); added++ } catch (_: Exception) { }
-                        }
-                        Log.i(TAG, "Peers updated: removed $downCount, added $added (${selected.size} from ${tested.size})")
-                    } finally { conn.disconnect() }
+                        selected.add(uri)
+                    }
+
+                    var added = 0
+                    for (uri in selected) {
+                        try { yggdrasil.addPeer(uri); added++ } catch (_: Exception) { }
+                    }
+                    Log.i(TAG, "Peers from router: removed $downCount, added $added")
                 } catch (e: Exception) {
-                    Log.e(TAG, "Peer fetch failed: $e")
+                    Log.w(TAG, "Router peers failed: $e. Keeping current peers.")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "peerUpdater: $e")
