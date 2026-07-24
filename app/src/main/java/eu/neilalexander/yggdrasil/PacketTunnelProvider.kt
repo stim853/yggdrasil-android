@@ -251,9 +251,17 @@ open class PacketTunnelProvider: VpnService() {
                 }
 
                 if (registered) {
+                    // Stop Java reader/writer — WG takes over TUN
+                    readerThread?.let { it.interrupt(); readerThread = null }
+                    writerThread?.let { it.interrupt(); writerThread = null }
+                    Thread.sleep(500)
                     val fd = pfd.dup().detachFd()
                     val ok = WgNative.start(fd, priv, pub, "[$address]:49638")
-                    Log.i(TAG, if (ok) "WG active" else "WG start failed")
+                    Log.i(TAG, if (ok) "WG active, Ygg mesh continues" else "WG start failed, restoring reader/writer")
+                    if (!ok) {
+                        readerThread = thread { reader() }
+                        writerThread = thread { writer() }
+                    }
                 }
             } catch (e: Exception) { Log.d(TAG, "WG: ${e.message}") }
         }
