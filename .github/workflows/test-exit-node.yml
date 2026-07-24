@@ -11,6 +11,7 @@ jobs:
       - uses: actions/setup-go@v5
         with: { go-version: '1.23' }
       - uses: android-actions/setup-android@v3
+
       - name: NDK
         run: |
           wget -q https://dl.google.com/android/repository/android-ndk-r21e-linux-x86_64.zip
@@ -18,30 +19,77 @@ jobs:
           mkdir -p $ANDROID_SDK_ROOT/ndk
           mv android-ndk-r21e $ANDROID_SDK_ROOT/ndk/21.4.7075529
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/21.4.7075529" >> $GITHUB_ENV
+
       - name: gomobile
         run: |
           go install golang.org/x/mobile/cmd/gomobile@latest
           gomobile init
+
       - name: Patch mobile.go
         run: |
           cd libs/yggdrasil-go
           cat contrib/mobile/mobile.go | sed '/"regexp"/a\    "net/url"' > /tmp/mobile_patched.go
           mv /tmp/mobile_patched.go contrib/mobile/mobile.go
           printf '\nfunc (m *Yggdrasil) AddPeer(uri string) error {\n\tu, err := url.Parse(uri)\n\tif err != nil { return err }\n\treturn m.core.AddPeer(u, "")\n}\n\nfunc (m *Yggdrasil) RemovePeer(uri string) error {\n\tu, err := url.Parse(uri)\n\tif err != nil { return err }\n\treturn m.core.RemovePeer(u, "")\n}\n' >> contrib/mobile/mobile.go
+
       - name: Build AAR
         run: |
           cd libs/yggdrasil-go
           gomobile bind -target android -androidapi 24 -tags mobile -o yggdrasil.aar -ldflags="-s -w -checklinkname=0" ./contrib/mobile ./src/config ./contrib/exitnode
           mkdir -p ../../app/libs
           cp yggdrasil.aar ../../app/libs/
+
       - name: Build APK
         run: ./gradlew assembleDebug
+
+      # ===== YGG NETWORK TEST =====
+      - name: Install yggdrasil
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq yggdrasil || true
+          # fallback: download binary
+          which yggdrasil || (
+            curl -sL https://github.com/yggdrasil-network/yggdrasil-go/releases/latest/download/yggdrasil-linux-amd64 -o /tmp/yggdrasil
+            chmod +x /tmp/yggdrasil
+            sudo mv /tmp/yggdrasil /usr/local/bin/
+          )
+          yggdrasil --version
+
+      - name: Connect CI to Yggdrasil network
+        run: |
+          yggdrasil -genconf > /tmp/ygg.conf
+          # Add public peers to connect to router's ygg
+          echo "Peers: [" >> /tmp/ygg.conf
+          echo '  "tcp://45.147.200.202:12402",' >> /tmp/ygg.conf
+          echo '  "tls://45.147.200.202:443",' >> /tmp/ygg.conf
+          echo '  "tcp://37.192.232.33:8080"' >> /tmp/ygg.conf
+          echo "]" >> /tmp/ygg.conf
+          yggdrasil -useconffile /tmp/ygg.conf &
+          YGG_PID=$!
+          sleep 10
+          # Check connection
+          curl -6sf --connect-timeout 5 "http://[200:5d25:1a4d:7ec0:8802:cab1:64fe:ab7c]:80/cgi-bin/peers" -o /tmp/peers.json -w "ROUTER_HTTP: %{http_code}\n" || echo "YGG_NOT_READY"
+          sleep 20
+          curl -6sf --connect-timeout 5 "http://[200:5d25:1a4d:7ec0:8802:cab1:64fe:ab7c]:80/cgi-bin/peers" -o /tmp/peers.json -w "ROUTER_HTTP: %{http_code}\n" || echo "YGG_NOT_READY"
+
+      - name: Test router API through ygg6
+        run: |
+          if [ -f /tmp/peers.json ] && [ -s /tmp/peers.json ]; then
+            echo "=== ROUTER PEERS ==="
+            cat /tmp/peers.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Peers: {d.get(\"count\",0)}, total_up: {d.get(\"total_up\",0)}')"
+            echo "ROUTER_ACCESS: OK"
+          else
+            echo "ROUTER_ACCESS: FAIL (router unreachable from CI)"
+          fi
+
+      # ===== EMULATOR TEST =====
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Run emulator + test
+
+      - name: Emulator APK test
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 32
@@ -53,24 +101,28 @@ jobs:
           script: |
             echo "=== DEVICE ==="
             adb shell getprop ro.build.version.release
-            echo "=== INSTALL APK ==="
+            echo "=== INSTALL ==="
             adb install -r app/build/outputs/apk/debug/app-debug.apk && echo "INSTALL_OK"
             echo "=== COMPONENTS ==="
             adb shell dumpsys package eu.neilalexander.yggdrasil | grep -E "Activity|Service|Receiver" | head -10
-            echo "=== START ==="
+            echo "=== LAUNCH ==="
             adb shell am start -n eu.neilalexander.yggdrasil/.MainActivity
             sleep 5
             adb shell screencap -p /sdcard/screen.png
             adb pull /sdcard/screen.png ./screen.png
             echo "=== LOGS ==="
-            adb logcat -d | grep -i "ygg\|wg\|wireguard\|GoBackend" | tail -30
+            adb logcat -d | grep -i "ygg\|wg\|wireguard\|GoBackend\|PacketTunnel" | tail -30
+            echo "=== MEM ==="
+            adb shell dumpsys meminfo eu.neilalexander.yggdrasil 2>/dev/null | grep "TOTAL" | head -3
             echo "=== DONE ==="
-      - name: Upload APK + screenshots
+
+      - name: Upload all artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: release
+          name: test-results
           path: |
             app/build/outputs/apk/debug/*.apk
             *.png
-          retention-days: 7
+            /tmp/peers*.json
+          retention-days: 14
