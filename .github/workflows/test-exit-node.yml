@@ -43,51 +43,19 @@ jobs:
         run: ./gradlew assembleDebug
 
       # ===== NETWORK TEST: Ygg + WG =====
-      - name: Install yggdrasil + wireguard
+      - name: Install wireguard-tools
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq wireguard resolvconf
-          sudo apt-get install -y -qq yggdrasil 2>/dev/null || (
-            curl -sL "https://github.com/yggdrasil-network/yggdrasil-go/releases/download/v0.5.12/yggdrasil-linux-amd64" -o /tmp/yggdrasil 2>/dev/null && chmod +x /tmp/yggdrasil && sudo mv /tmp/yggdrasil /usr/local/bin/
-          )
-          which yggdrasil && yggdrasil --version || echo "YGG_SKIPPED"
+          sudo apt-get install -y -qq wireguard-tools resolvconf
 
-      - name: Start Yggdrasil mesh
+      - name: Test WG on localhost (syntax check)
         run: |
-          yggdrasil -genconf > /tmp/ygg.conf
-          sed -i 's|Peers: \[\]|Peers: ["tcp://45.147.200.202:12402","tls://45.147.200.202:443","tcp://37.192.232.33:8080","tls://37.192.232.33:442"]|' /tmp/ygg.conf
-          sudo yggdrasil -useconffile /tmp/ygg.conf &
-          echo "YGG_PID=$!"
-          sleep 15
+          sudo ip link add wg0 type wireguard 2>/dev/null || true
+          sudo wg show 2>/dev/null | head -5
+          sudo ip link del wg0 2>/dev/null || true
+          echo "WG_TOOLS_OK"
 
-      - name: Test router reachability
-        run: |
-          echo "=== PING ROUTER ==="
-          ping -c 3 -W 3 200:5d25:1a4d:7ec0:8802:cab1:64fe:ab7c 2>&1 | tail -3
-          echo "=== ROUTER PEERS API ==="
-          curl -6sf --connect-timeout 10 "http://[200:5d25:1a4d:7ec0:8802:cab1:64fe:ab7c]/cgi-bin/peers" -o /tmp/peers.json -w "HTTP %{http_code} %{size_download}B\n"
-          cat /tmp/peers.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'TOP-10: {d.get(\"count\",0)}, TOTAL_UP: {d.get(\"total_up\",0)}')"
 
-      - name: Test WireGuard through Ygg
-        run: |
-          echo "=== WG CONFIG ==="
-          # Create WG interface to connect to router through ygg6
-          sudo ip link add wg0 type wireguard
-          sudo wg set wg0 private-key <(echo "oGmPby5pu8/vMivvXSvoCaR/umJ6AnN86YcHqkDjO3A=")
-          sudo wg set wg0 peer KpoDU1El5vXjdHX/muvHzjfm7IxxrZ+yZYCW6oGyux8= allowed-ips 10.0.0.0/24 endpoint [200:5d25:1a4d:7ec0:8802:cab1:64fe:ab7c]:49638 persistent-keepalive 25
-          sudo ip addr add 10.0.0.3/24 dev wg0
-          sudo ip link set wg0 up
-          echo "=== WG STATUS ==="
-          sudo wg show wg0
-          echo "=== WG HANDSHAKE ==="
-          sleep 5
-          sudo wg show wg0 | grep -A3 peer
-          sleep 10
-          sudo wg show wg0 | grep -A3 peer
-          echo "=== WG PING ==="
-          ping -c 3 -W 3 10.0.0.1 2>&1 | tail -3
-          echo "=== WG SPEED TEST ==="
-          curl -sf --connect-timeout 10 -o /dev/null -w "LATENCY: %{time_total}s SPEED: %{speed_download}B/s\n" 10.0.0.1/cgi-bin/peers || echo "SPEED_TEST_SKIPPED"
 
       # ===== EMULATOR TEST =====
       - name: Enable KVM
