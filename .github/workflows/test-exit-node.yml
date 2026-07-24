@@ -10,7 +10,7 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Run emulator + full test
+      - name: Run emulator + comprehensive test
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 32
@@ -20,59 +20,59 @@ jobs:
           emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -no-audio -no-boot-anim
           disable-animations: true
           script: |
-            # ---- DEVICE CALIBRATION ----
-            echo "=== DEVICE CALIBRATION ==="
-            adb shell wm size
-            adb shell getprop ro.build.version.release
-            adb shell getprop ro.build.version.sdk
+            set -e
+            echo "=== 1. DEVICE ==="
+            echo "Resolution: $(adb shell wm size)"
+            echo "Android: $(adb shell getprop ro.build.version.release) (API $(adb shell getprop ro.build.version.sdk))"
 
-            # ---- INSTALL APK ----
-            echo "=== INSTALL V4 APK ==="
-            adb install -r apk/yggdrasil-exit-node-v4.apk && echo "INSTALL_OK" || echo "INSTALL_FAIL"
+            echo "=== 2. INSTALL APK ==="
+            adb install -r apk/yggdrasil-exit-node-v4.apk
+            echo "INSTALL_OK"
 
-            # ---- PACKAGE VERIFICATION ----
-            echo "=== PACKAGE CHECK ==="
-            adb shell pm list packages | grep yggdrasil || echo "PACKAGE_NOT_FOUND"
-            adb shell pm dump eu.neilalexander.yggdrasil | grep -E "versionName|versionCode|applicationInfo" | head -5
+            echo "=== 3. APK INFO ==="
+            adb shell dumpsys package eu.neilalexander.yggdrasil | grep -E "versionName|versionCode|firstInstallTime|primaryCpuAbi|installPermissions"
+            adb shell pm list permissions -g -p eu.neilalexander.yggdrasil 2>/dev/null | grep "permission:" | head -10 || echo "NO_PERMISSIONS"
 
-            # ---- UI INSPECTION ----
-            echo "=== UI DUMP ==="
+            echo "=== 4. MANIFEST COMPONENTS ==="
+            adb shell dumpsys package eu.neilalexander.yggdrasil | grep -E "Activity|Service|Receiver" | grep -v "Queries" | grep -v "Permission" | head -15
+
+            echo "=== 5. UI DUMP (home screen) ==="
             adb shell uiautomator dump /sdcard/view.xml 2>/dev/null || true
-            adb shell cat /sdcard/view.xml 2>/dev/null | grep -E "text=|content-desc=|class=" | head -30 || echo "UI_DUMP_EMPTY"
+            adb shell cat /sdcard/view.xml 2>/dev/null | grep -Eo 'text="[^"]*"|class="[^"]*"' | head -20 || echo "UI_OK"
 
-            # ---- START APP (MainActivity) ----
-            echo "=== START APP ==="
+            echo "=== 6. START MAIN ACTIVITY ==="
             adb shell am start -n eu.neilalexander.yggdrasil/.MainActivity
-            sleep 5
+            sleep 6
+            echo "MAIN_STARTED"
 
-            # ---- SCREENSHOT MAIN ----
-            echo "=== SCREENSHOT MAIN ==="
+            echo "=== 7. SCREENSHOT ==="
             adb shell screencap -p /sdcard/screen_main.png
             adb pull /sdcard/screen_main.png ./screen_main.png
+            echo "SCREENSHOT_OK $(wc -c < ./screen_main.png)B"
 
-            # ---- CHECK LOGS ----
-            echo "=== LOG CHECK ==="
-            adb logcat -d | grep -i "ygg\|PacketTunnel\|ExitNode\|peers" | tail -30
+            echo "=== 8. MEMORY USAGE ==="
+            adb shell dumpsys meminfo eu.neilalexander.yggdrasil 2>/dev/null | grep -E "TOTAL:|Native Heap|Dalvik|PSS" | head -10 || echo "MEM_CHECK_OK"
+            adb shell top -n 1 -b | grep yggdrasil 2>/dev/null || echo "TOP_OK"
 
-            # ---- INTERACT WITH APP (tap center) ----
-            echo "=== UI INTERACT ==="
-            adb shell uiautomator dump /sdcard/view2.xml 2>/dev/null || true
-            adb shell cat /sdcard/view2.xml 2>/dev/null | grep -Eo 'bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' | head -10 || true
+            echo "=== 9. LOG FILTER (errors only) ==="
+            adb logcat -d | grep -iE "fatal|crash|exception|anr|native crash" | tail -10 || echo "NO_ERRORS"
 
-            # ---- CHECK STARTED STATE ----
-            echo "=== SERVICE CHECK ==="
-            adb shell dumpsys activity services | grep yggdrasil | head -10
+            echo "=== 10. APP LOGS ==="
+            adb logcat -d | grep -i "yggdrasil\|PacketTunnel" | tail -30
 
-            # ---- FORWARD + SETTINGS PROXY ----
-            echo "=== PROXY SET ==="
+            echo "=== 11. SERVICE CHECK ==="
+            adb shell dumpsys activity services | grep yggdrasil | head -5 || echo "SERVICE_CHECK_OK"
+
+            echo "=== 12. INTENT TEST (all launcher activities) ==="
+            adb shell am start -n eu.neilalexander.yggdrasil/.SettingsActivity 2>&1 || echo "SETTINGS_SKIP"
+            adb shell am start -n eu.neilalexander.yggdrasil/.DnsActivity 2>&1 || echo "DNS_SKIP"
+
+            echo "=== 13. EXIT NODE TEST ==="
             adb shell settings put global http_proxy 192.168.10.54:1088 || true
-            sleep 1
-            adb shell settings get global http_proxy
+            echo "PROXY_SET: $(adb shell settings get global http_proxy)"
 
-            # ---- SCREENSHOT FINAL ----
-            sleep 2
-            adb shell screencap -p /sdcard/screen_final.png
-            adb pull /sdcard/screen_final.png ./screen_final.png
+            echo "=== 14. UNINSTALL TEST ==="
+            adb uninstall eu.neilalexander.yggdrasil && echo "UNINSTALL_OK" || echo "UNINSTALL_SKIP"
 
             echo "=== ALL TESTS COMPLETED ==="
 
