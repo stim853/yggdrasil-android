@@ -11,7 +11,7 @@ object WgNative {
             System.loadLibrary("wg-go")
             loaded = true
             val c = Class.forName("com.wireguard.android.backend.GoBackend")
-            wgTurnOn = c.getDeclaredMethod("wgTurnOn", Integer.TYPE, String::class.java)
+            wgTurnOn = c.getDeclaredMethod("wgTurnOn", String::class.java, Integer.TYPE, String::class.java)
             wgTurnOn?.isAccessible = true
             wgTurnOff = c.getDeclaredMethod("wgTurnOff", Integer.TYPE)
             wgTurnOff?.isAccessible = true
@@ -25,7 +25,7 @@ object WgNative {
         val m = wgTurnOn ?: return false
         return try {
             val cfg = "private_key=$priv\npublic_key=$pub\nendpoint=$ep\nallowed_ip=0.0.0.0/0\npersistent_keepalive_interval=25\n"
-            val h = m.invoke(null, fd, cfg) as Int
+            val h = m.invoke(null, "wg0", fd, cfg) as Int
             android.util.Log.i("WG", "WG started handle=$h")
             h >= 0
         } catch (e: Throwable) {
