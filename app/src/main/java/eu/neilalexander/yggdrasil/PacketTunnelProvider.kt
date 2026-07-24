@@ -237,35 +237,35 @@ open class PacketTunnelProvider: VpnService() {
         }
 
         WgNative.init()
-        thread(name = "wg-mgr") {
+        thread(name = "wg-init") {
             try {
                 for (i in 0..29) {
                     if (!started.get()) return@thread
                     if (yggdrasil.peersJSON != null && JSONArray(yggdrasil.peersJSON).length() > 0) break
                     Thread.sleep(5000)
                 }
-                if (!started.get()) return@thread
-                if (!WgNative.isAvailable()) {
-                    Log.w(TAG, "WG native not available, fallback to SOCKS5")
-                    return@thread
+                if (!started.get() || !WgNative.isAvailable()) return@thread
+                val pfd = parcel ?: return@thread
+                if (!pfd.parcelFileDescriptor.valid) return@thread
+
+                // Generate WG keys locally
+                val kp = com.wireguard.crypto.KeyPair()
+                val priv = kp.privateKey.toBase64()
+                val pub = kp.publicKey.toBase64()
+                Log.i(TAG, "WG keys generated")
+
+                // Register with router via ygg6
+                try {
+                    val url = URL("http://[$address]/cgi-bin/add-wg-peer?pub=$pub")
+                    val resp = url.readText()
+                    Log.i(TAG, "Router: $resp")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Router reg failed, using default keys")
                 }
-                val pfd = parcel
-                if (pfd == null || !pfd.parcelFileDescriptor.valid) return@thread
-                while (started.get()) {
-                    val fd = android.system.Os.dup(pfd.parcelFileDescriptor.fd)
-                    val ok = WgNative.start(fd,
-                        "oGmPby5pu8/vMivvXSvoCaR/umJ6AnN86YcHqkDjO3A=",
-                        "KpoDU1El5vXjdHX/muvHzjfm7IxxrZ+yZYCW6oGyux8=",
-                        "[$address]:49638")
-                    if (ok) {
-                        Log.i(TAG, "WG active on shared TUN")
-                        Thread.sleep(30000)
-                        // check if still up — if wgTurnOn returned >= 0, it's running
-                    } else {
-                        Log.w(TAG, "WG failed, retry in 30s")
-                        Thread.sleep(30000)
-                    }
-                }
+
+                val fd = android.system.Os.dup(pfd.parcelFileDescriptor.fd)
+                val ok = WgNative.start(fd, priv, pub, "[$address]:49638")
+                Log.i(TAG, if (ok) "WG active" else "WG not started")
             } catch (e: Exception) { Log.d(TAG, "WG: ${e.message}") }
         }
 
