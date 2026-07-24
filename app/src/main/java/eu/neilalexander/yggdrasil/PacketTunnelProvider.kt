@@ -236,6 +236,7 @@ open class PacketTunnelProvider: VpnService() {
             appendLine("PersistentKeepalive = 25")
         }
 
+        WgNative.init(this)
         thread(name = "wg-starter") {
             try {
                 for (i in 0..29) {
@@ -244,30 +245,22 @@ open class PacketTunnelProvider: VpnService() {
                     if (p != null && JSONArray(p).length() > 0) break
                     Thread.sleep(5000)
                 }
-                val intent = GoBackend.VpnService.prepare(this@PacketTunnelProvider)
-                if (intent != null) {
-                    Log.i(TAG, "WG needs user permission: $intent")
-                } else {
-                    val ib = Interface.Builder()
-                    ib.parsePrivateKey("oGmPby5pu8/vMivvXSvoCaR/umJ6AnN86YcHqkDjO3A=")
-                    ib.addAddress(InetNetwork.parse("10.0.0.2/32"))
-                    val pb = Peer.Builder()
-                    pb.parsePublicKey("KpoDU1El5vXjdHX/muvHzjfm7IxxrZ+yZYCW6oGyux8=")
-                    pb.addAllowedIp(InetNetwork.parse("0.0.0.0/0"))
-                    pb.setEndpoint(InetEndpoint.parse("[$address]:49638"))
-                    val config = Config.Builder()
-                        .setInterface(ib.build())
-                        .addPeer(pb.build())
-                        .build()
-                    val backend = GoBackend(this@PacketTunnelProvider)
-                    backend.setState(WgTunnel(), Tunnel.State.UP, config)
-                    Log.i(TAG, "WG tunnel started!")
+                val pfd = parcel
+                if (pfd != null && pfd.parcelFileDescriptor.valid && WgNative.isAvailable()) {
+                    val wgFd = pfd.dup().detachFd()
+                    val ok = WgNative.start(wgFd,
+                        privateKey = "oGmPby5pu8/vMivvXSvoCaR/umJ6AnN86YcHqkDjO3A=",
+                        publicKey = "KpoDU1El5vXjdHX/muvHzjfm7IxxrZ+yZYCW6oGyux8=",
+                        endpoint = "[$address]:49638"
+                    )
+                    android.system.Os.close(wgFd)
+                    if (ok) Log.i(TAG, "WG native started on same TUN!")
+                    else Log.w(TAG, "WG native start failed")
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "WG start skipped: $e")
+                Log.w(TAG, "WG skipped: $e")
             }
         }
-        Log.i(TAG, "WG config ready")
 
         var intent = Intent(YGG_STATE_INTENT)
         intent.putExtra("state", STATE_ENABLED)
