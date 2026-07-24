@@ -237,25 +237,41 @@ open class PacketTunnelProvider: VpnService() {
         }
 
         val wg = WgRunner(this)
-        thread(name = "wg-starter") {
+        thread(name = "wg-mgr") {
             try {
                 for (i in 0..29) {
                     if (!started.get()) return@thread
-                    val p = yggdrasil.peersJSON
-                    if (p != null && JSONArray(p).length() > 0) break
+                    if (yggdrasil.peersJSON != null && JSONArray(yggdrasil.peersJSON).length() > 0) break
                     Thread.sleep(5000)
                 }
                 if (!started.get()) return@thread
-                Log.i(TAG, "Starting WG via GoBackend (takes over VPN from Ygg)")
-                val ok = wg.start("[$address]:49638")
-                if (ok) {
-                    Log.i(TAG, "WG ACTIVE. Ygg mesh running in background.")
-                } else {
-                    Log.w(TAG, "WG start failed, Ygg stays as VPN")
+
+                fun startWG() {
+                    val ok = wg.start("[$address]:49638")
+                    Log.i(TAG, if (ok) "WG started" else "WG skipped")
                 }
-            } catch (e: Exception) {
-                Log.w(TAG, "WG: ${e.message}")
-            }
+
+                startWG()
+
+                while (started.get()) {
+                    Thread.sleep(30000)
+                    val stats = wg.getStats()
+                    if (stats != null) {
+                        val secAgo = (System.currentTimeMillis() - stats.third) / 1000
+                        if (secAgo > 180) {
+                            Log.w(TAG, "WG handshake stale ${secAgo}s, restarting...")
+                            wg.stop(); Thread.sleep(2000); startWG()
+                        } else {
+                            Log.i(TAG, "WG OK RX=${stats.first/1024}KB TX=${stats.second/1024}KB HS=${secAgo}s")
+                        }
+                    } else if (wg.isRunning()) {
+                        Log.i(TAG, "WG running (no stats yet)")
+                    } else {
+                        Log.w(TAG, "WG not running, restarting...")
+                        startWG()
+                    }
+                }
+            } catch (e: Exception) { Log.e(TAG, "WG mgr: $e") }
         }
 
         var intent = Intent(YGG_STATE_INTENT)
