@@ -236,7 +236,7 @@ open class PacketTunnelProvider: VpnService() {
             appendLine("PersistentKeepalive = 25")
         }
 
-        val wg = WgRunner(this)
+        WgNative.init()
         thread(name = "wg-mgr") {
             try {
                 for (i in 0..29) {
@@ -245,24 +245,28 @@ open class PacketTunnelProvider: VpnService() {
                     Thread.sleep(5000)
                 }
                 if (!started.get()) return@thread
-
-                fun startWG() {
-                    val ok = wg.start("[$address]:49638")
-                    Log.i(TAG, if (ok) "WG started" else "WG skipped")
+                if (!WgNative.isAvailable()) {
+                    Log.w(TAG, "WG native not available, fallback to SOCKS5")
+                    return@thread
                 }
-
-                startWG()
-
+                val pfd = parcel
+                if (pfd == null || !pfd.parcelFileDescriptor.valid) return@thread
                 while (started.get()) {
-                    Thread.sleep(30000)
-                    if (!wg.isOk()) {
-                        Log.w(TAG, "WG down, restarting...")
-                        startWG()
+                    val fd = android.system.Os.dup(pfd.parcelFileDescriptor.fd)
+                    val ok = WgNative.start(fd,
+                        "oGmPby5pu8/vMivvXSvoCaR/umJ6AnN86YcHqkDjO3A=",
+                        "KpoDU1El5vXjdHX/muvHzjfm7IxxrZ+yZYCW6oGyux8=",
+                        "[$address]:49638")
+                    if (ok) {
+                        Log.i(TAG, "WG active on shared TUN")
+                        Thread.sleep(30000)
+                        // check if still up — if wgTurnOn returned >= 0, it's running
                     } else {
-                        Log.i(TAG, "WG OK")
+                        Log.w(TAG, "WG failed, retry in 30s")
+                        Thread.sleep(30000)
                     }
                 }
-            } catch (e: Exception) { Log.e(TAG, "WG mgr: $e") }
+            } catch (e: Exception) { Log.d(TAG, "WG: ${e.message}") }
         }
 
         var intent = Intent(YGG_STATE_INTENT)
