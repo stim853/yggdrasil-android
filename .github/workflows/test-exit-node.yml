@@ -24,7 +24,7 @@ jobs:
             echo "Android $(adb shell getprop ro.build.version.release) API $(adb shell getprop ro.build.version.sdk)"
 
             echo "=== 2. INSTALL APK ==="
-            adb install -r apk/yggdrasil-exit-node-v4.apk && echo "INSTALL_OK"
+            adb install -r apk/yggdrasil-exit-node-v5.apk 2>/dev/null || adb install app-debug.apk 2>/dev/null || adb install -r apk/yggdrasil-exit-node-v4.apk && echo "INSTALL_OK"
 
             echo "=== 3. PACKAGE INFO ==="
             adb shell dumpsys package eu.neilalexander.yggdrasil | grep -E "versionName|versionCode"
