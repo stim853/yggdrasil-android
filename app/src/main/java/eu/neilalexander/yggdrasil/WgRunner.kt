@@ -4,20 +4,18 @@ import com.wireguard.android.backend.GoBackend
 import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.*
 
-class WgRunner(private val ctx: android.content.Context) : Tunnel {
+class WgRunner(ctx: android.content.Context) : Tunnel {
     private val backend = GoBackend(ctx)
-    private var _running = false
-    private var _handle = -1
+    private var running = false
 
     override fun getName() = "yggwg"
     override fun onStateChange(newState: Tunnel.State?) {}
 
-    fun start(endpoint: String): Boolean {
-        if (_running) return true
+    fun start(ep: String): Boolean {
+        if (running) return true
         return try {
-            val intent = GoBackend.VpnService.prepare(ctx)
-            if (intent != null) { return false }
-
+            val i = GoBackend.VpnService.prepare(ctx)
+            if (i != null) return false
             val cfg = Config.Builder()
                 .setInterface(Interface.Builder()
                     .parsePrivateKey("oGmPby5pu8/vMivvXSvoCaR/umJ6AnN86YcHqkDjO3A=")
@@ -26,43 +24,25 @@ class WgRunner(private val ctx: android.content.Context) : Tunnel {
                 .addPeer(Peer.Builder()
                     .parsePublicKey("KpoDU1El5vXjdHX/muvHzjfm7IxxrZ+yZYCW6oGyux8=")
                     .addAllowedIp(InetNetwork.parse("0.0.0.0/0"))
-                    .setEndpoint(InetEndpoint.parse(endpoint))
+                    .setEndpoint(InetEndpoint.parse(ep))
                     .build())
                 .build()
-
             backend.setState(this, Tunnel.State.UP, cfg)
-            _running = true
+            running = true
             true
-        } catch (e: Exception) {
-            android.util.Log.e("WG", "start: $e")
-            false
-        }
+        } catch (e: Exception) { android.util.Log.e("WG", "start: $e"); false }
     }
 
     fun stop() {
-        if (!_running) return
+        if (!running) return
         try { backend.setState(this, Tunnel.State.DOWN, null) } catch (_: Exception) {}
-        _running = false
+        running = false
     }
 
-    fun isRunning(): Boolean {
-        if (!_running) return false
+    fun isOk(): Boolean {
+        if (!running) return false
         return try {
             backend.getState(this) == Tunnel.State.UP
         } catch (_: Exception) { false }
     }
-
-    fun getStats(): Triple<Long, Long, Long>? {
-        return try {
-            val s = backend.getStatistics(this)
-            Triple(s.totalRxBytes, s.totalTxBytes, s.lastHandshakeTimeEpochMillis)
-        } catch (_: Exception) { null }
-    }
 }
-
-data class WgStats(
-    val running: Boolean,
-    val rxBytes: Long,
-    val txBytes: Long,
-    val lastHandshakeSec: Long
-)

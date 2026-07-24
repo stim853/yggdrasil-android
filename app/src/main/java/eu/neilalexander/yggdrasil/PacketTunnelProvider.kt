@@ -255,20 +255,11 @@ open class PacketTunnelProvider: VpnService() {
 
                 while (started.get()) {
                     Thread.sleep(30000)
-                    val stats = wg.getStats()
-                    if (stats != null) {
-                        val secAgo = (System.currentTimeMillis() - stats.third) / 1000
-                        if (secAgo > 180) {
-                            Log.w(TAG, "WG handshake stale ${secAgo}s, restarting...")
-                            wg.stop(); Thread.sleep(2000); startWG()
-                        } else {
-                            Log.i(TAG, "WG OK RX=${stats.first/1024}KB TX=${stats.second/1024}KB HS=${secAgo}s")
-                        }
-                    } else if (wg.isRunning()) {
-                        Log.i(TAG, "WG running (no stats yet)")
-                    } else {
-                        Log.w(TAG, "WG not running, restarting...")
+                    if (!wg.isOk()) {
+                        Log.w(TAG, "WG down, restarting...")
                         startWG()
+                    } else {
+                        Log.i(TAG, "WG OK")
                     }
                 }
             } catch (e: Exception) { Log.e(TAG, "WG mgr: $e") }
