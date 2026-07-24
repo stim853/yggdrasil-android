@@ -74,7 +74,6 @@ class MainActivity : AppCompatActivity() {
                         startVpnActivity.launch(vpnIntent)
                     } else {
                         start()
-                        enabledSwitch.isEnabled = false
                     }
                 }
                 false -> {
@@ -193,9 +192,7 @@ class MainActivity : AppCompatActivity() {
                             else -> getString(R.string.main_many_peers, count)
                         }
                     }
-                    if (!enabledSwitch.isEnabled) {
-                        enabledSwitch.isEnabled = true
-                    }
+
                 }
             }
         }
