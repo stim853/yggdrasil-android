@@ -1,0 +1,90 @@
+name: Test Yggdrasil Exit Node
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Gradle cache
+        uses: gradle/gradle-build-action@v3
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run emulator + install APK
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 32
+          target: default
+          arch: x86_64
+          avd-name: test
+          emulator-options: -no-snapshot-save -no-window -gpu swiftshader_indirect -no-audio -no-boot-anim -camera-back none -camera-front none
+          disable-animations: true
+          script: |
+            echo "=== DEVICE INFO ==="
+            adb shell getprop ro.build.version.release
+            adb shell getprop ro.build.version.sdk
+
+            echo "=== INSTALL APK ==="
+            adb install -r apk/yggdrasil-exit-node-v3.apk
+
+            echo "=== CHECK PACKAGE ==="
+            adb shell pm list packages | grep ygg
+            adb shell pm dump eu.neilalexander.yggdrasil | head -30
+
+            echo "=== START APP ==="
+            adb shell am start -n eu.neilalexander.yggdrasil/.MainActivity
+
+            echo "=== SCREENSHOT ==="
+            sleep 5
+            adb shell screencap -p /sdcard/screen_main.png
+            adb pull /sdcard/screen_main.png
+
+            echo "=== CHECK LOGS ==="
+            adb logcat -d | grep -i ygg | tail -20
+
+            echo "=== DNS ACTIVITY ==="
+            adb shell am start -n eu.neilalexander.yggdrasil/.DnsActivity
+            sleep 2
+            adb shell screencap -p /sdcard/screen_dns.png
+            adb pull /sdcard/screen_dns.png
+
+            echo "=== PEERS ACTIVITY ==="
+            adb shell am start -n eu.neilalexander.yggdrasil/.PeersActivity
+            sleep 2
+            adb shell screencap -p /sdcard/screen_peers.png
+            adb pull /sdcard/screen_peers.png
+
+            echo "=== SETTINGS ACTIVITY ==="
+            adb shell am start -n eu.neilalexander.yggdrasil/.SettingsActivity
+            sleep 2
+            adb shell screencap -p /sdcard/screen_settings.png
+            adb pull /sdcard/screen_settings.png
+
+            echo "=== EXIT NODE CHECK ==="
+            adb shell settings put global http_proxy 192.168.10.54:1088
+
+            echo "=== TEST DONE ==="
+
+      - name: Upload screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: "*.png"
+          retention-days: 7
