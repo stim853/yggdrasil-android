@@ -4,7 +4,7 @@ import com.wireguard.android.backend.GoBackend
 import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.*
 
-class WgRunner(ctx: android.content.Context) : Tunnel {
+class WgRunner(private val ctx: android.content.Context) : Tunnel {
     private val backend = GoBackend(ctx)
     private var running = false
 
