@@ -1,5 +1,7 @@
 package eu.neilalexander.yggdrasil
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.net.ConnectivityManager
 import android.net.Network
@@ -8,6 +10,7 @@ import android.net.VpnService
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import android.system.OsConstants
 import android.util.Log
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
@@ -210,6 +213,25 @@ open class PacketTunnelProvider: VpnService() {
             peerUpdater()
         }
 
+        val wgConfig = buildString {
+            appendLine("[Interface]")
+            appendLine("PrivateKey = (phone key from /etc/wireguard/phone.key)")
+            appendLine("Address = 10.0.0.2/24")
+            appendLine("DNS = $gatewayAddr")
+            appendLine("")
+            appendLine("[Peer]")
+            appendLine("PublicKey = KpoDU1El5vXjdHX/muvHzjfm7IxxrZ+yZYCW6oGyux8=")
+            appendLine("Endpoint = [$address]:49638")
+            appendLine("AllowedIPs = 0.0.0.0/0")
+            appendLine("PersistentKeepalive = 25")
+        }
+        Log.i(TAG, "=== WG CONFIG (paste into WG Tunnel/WireGuard app) ===")
+        Log.i(TAG, wgConfig)
+
+        val clip = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        clip.setPrimaryClip(ClipData.newPlainText("wg-config", wgConfig))
+        Log.i(TAG, "WG config copied to clipboard")
+
         var intent = Intent(YGG_STATE_INTENT)
         intent.putExtra("state", STATE_ENABLED)
         LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
@@ -315,11 +337,21 @@ open class PacketTunnelProvider: VpnService() {
     private fun peerUpdater() {
         data class PeerResult(val uri: String, val latencyMs: Long, val proto: String)
 
-        val MAX_PEERS = 10
+        val MAX_PEERS = 5
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        var skipped = 0
 
         updates@ while (started.get()) {
             try {
-                Thread.sleep(60000)
+                if (!pm.isInteractive || pm.isPowerSaveMode) {
+                    skipped++
+                    if (skipped < 6) {
+                        Thread.sleep(60000)
+                        continue
+                    }
+                }
+                skipped = 0
+                Thread.sleep(300000)
             } catch (_: InterruptedException) {
                 return
             }
@@ -339,7 +371,7 @@ open class PacketTunnelProvider: VpnService() {
                 val total = upCount + downCount
                 if (downCount < 1 && total >= 3) continue
 
-                Log.i(TAG, "Peers: $upCount up, $downCount down. Scanning for best peers...")
+                Log.i(TAG, "Peers: $upCount up, $downCount down. Scanning...")
                 try {
                     val url = URL("https://publicpeers.neilalexander.dev/data/peers.json")
                     val conn = url.openConnection() as HttpURLConnection
@@ -368,7 +400,7 @@ open class PacketTunnelProvider: VpnService() {
                             try {
                                 val start = System.currentTimeMillis()
                                 Socket().use { sock ->
-                                    sock.connect(InetSocketAddress(host, port), 3000)
+                                    sock.connect(InetSocketAddress(host, port), 2000)
                                     tested.add(PeerResult(uri, System.currentTimeMillis() - start, proto))
                                 }
                             } catch (_: Exception) { }
@@ -383,46 +415,22 @@ open class PacketTunnelProvider: VpnService() {
                             if (p.proto == "tls" && selected.size < MAX_PEERS) selected.add(p.uri)
                         }
                         for (p in tested) {
-                            if (p.proto == "tcp" && selected.size < MAX_PEERS) selected.add(p.uri)
+                            if (p.proto == "tcp" && p.latencyMs < 500 && selected.size < MAX_PEERS) selected.add(p.uri)
                         }
 
-                        for (uri in downPeers) {
-                            try { yggdrasil.removePeer(uri) } catch (_: Exception) { }
-                        }
-
-                        if (upCount + selected.size > MAX_PEERS) {
-                            val currentUp = mutableListOf<Pair<String, Long>>()
-                            for (i in 0 until peers.length()) {
-                                val p = peers.getJSONObject(i)
-                                if (p.getBoolean("Up")) {
-                                    currentUp.add(Pair(p.getString("URI"), p.optLong("Latency", 9999)))
-                                }
-                            }
-                            currentUp.sortByDescending { it.second }
-                            var toRemove = currentUp.size + selected.size - MAX_PEERS
-                            for (p in currentUp) {
-                                if (toRemove <= 0) break
-                                try { yggdrasil.removePeer(p.first) } catch (_: Exception) { }
-                                toRemove--
-                            }
-                        }
+                        for (uri in downPeers) try { yggdrasil.removePeer(uri) } catch (_: Exception) { }
 
                         var added = 0
                         for (uri in selected) {
-                            try {
-                                yggdrasil.addPeer(uri)
-                                added++
-                            } catch (_: Exception) { }
+                            try { yggdrasil.addPeer(uri); added++ } catch (_: Exception) { }
                         }
-                        Log.i(TAG, "Peer update: removed $downCount dead, added $added new (${selected.size} selected from ${tested.size} tested)")
-                    } finally {
-                        conn.disconnect()
-                    }
+                        Log.i(TAG, "Peers updated: removed $downCount, added $added (${selected.size} from ${tested.size})")
+                    } finally { conn.disconnect() }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to update peers: $e")
+                    Log.e(TAG, "Peer fetch failed: $e")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "peerUpdater error: $e")
+                Log.e(TAG, "peerUpdater: $e")
             }
         }
     }
