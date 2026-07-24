@@ -17,7 +17,7 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.preference.PreferenceManager
 import com.wireguard.android.backend.GoBackend
 import com.wireguard.android.backend.Tunnel
-import com.wireguard.config.Config
+import com.wireguard.config.*
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import javax.net.ssl.HostnameVerifier
@@ -244,16 +244,30 @@ open class PacketTunnelProvider: VpnService() {
                     if (p != null && JSONArray(p).length() > 0) break
                     Thread.sleep(5000)
                 }
-                val config = Config.parse(wgConfigStr)
-                val backend = GoBackend(this@PacketTunnelProvider)
-                val tunnel = Tunnel("wg0")
-                backend.setState(tunnel, Tunnel.State.UP, config)
-                Log.i(TAG, "WG tunnel started!")
+                val intent = GoBackend.VpnService.prepare(this@PacketTunnelProvider)
+                if (intent != null) {
+                    Log.i(TAG, "WG needs user permission: $intent")
+                } else {
+                    val ib = Interface.Builder()
+                    ib.parsePrivateKey("oGmPby5pu8/vMivvXSvoCaR/umJ6AnN86YcHqkDjO3A=")
+                    ib.addAddress(InetNetwork.parse("10.0.0.2/32"))
+                    val pb = Peer.Builder()
+                    pb.parsePublicKey("KpoDU1El5vXjdHX/muvHzjfm7IxxrZ+yZYCW6oGyux8=")
+                    pb.addAllowedIp(InetNetwork.parse("0.0.0.0/0"))
+                    pb.setEndpoint(InetEndpoint.parse("[$address]:49638"))
+                    val config = Config.Builder()
+                        .setInterface(ib.build())
+                        .addPeer(pb.build())
+                        .build()
+                    val backend = GoBackend(this@PacketTunnelProvider)
+                    backend.setState(WgTunnel(), Tunnel.State.UP, config)
+                    Log.i(TAG, "WG tunnel started!")
+                }
             } catch (e: Exception) {
                 Log.w(TAG, "WG start skipped: $e")
             }
         }
-        Log.i(TAG, "WG config copied to clipboard")
+        Log.i(TAG, "WG config ready")
 
         var intent = Intent(YGG_STATE_INTENT)
         intent.putExtra("state", STATE_ENABLED)
