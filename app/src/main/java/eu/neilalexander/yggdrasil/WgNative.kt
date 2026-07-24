@@ -37,4 +37,6 @@ object WgNative {
     fun stop(handle: Int) {
         wgTurnOff?.let { try { it.invoke(null, handle) } catch (_: Throwable) {} }
     }
+
+    fun isAvailable(): Boolean = loaded && wgTurnOn != null
 }

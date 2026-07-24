@@ -263,7 +263,7 @@ open class PacketTunnelProvider: VpnService() {
                     Log.w(TAG, "Router reg failed, using default keys")
                 }
 
-                val fd = android.system.Os.dup(pfd.fileDescriptor)
+                val fd = pfd.dup().detachFd()
                 val ok = WgNative.start(fd, priv, pub, "[$address]:49638")
                 Log.i(TAG, if (ok) "WG active" else "WG not started")
             } catch (e: Exception) { Log.d(TAG, "WG: ${e.message}") }
