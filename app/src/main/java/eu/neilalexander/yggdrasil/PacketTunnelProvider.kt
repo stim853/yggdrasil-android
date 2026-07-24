@@ -15,6 +15,10 @@ import android.system.OsConstants
 import android.util.Log
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.preference.PreferenceManager
+import com.wireguard.config.Config
+import com.wireguard.config.InetNetwork
+import com.wireguard.crypto.Key
+import com.wireguard.crypto.KeyPair
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import javax.net.ssl.HostnameVerifier
