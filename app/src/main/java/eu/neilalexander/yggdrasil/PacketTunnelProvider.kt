@@ -15,6 +15,8 @@ import android.system.OsConstants
 import android.util.Log
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.preference.PreferenceManager
+import com.wireguard.android.backend.GoBackend
+import com.wireguard.android.backend.Tunnel
 import com.wireguard.config.Config
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
@@ -233,10 +235,24 @@ open class PacketTunnelProvider: VpnService() {
             appendLine("AllowedIPs = 0.0.0.0/0")
             appendLine("PersistentKeepalive = 25")
         }
-        Log.i(TAG, "=== WG CONFIG ===")
-        Log.i(TAG, wgConfigStr)
-        val clip = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-        clip.setPrimaryClip(ClipData.newPlainText("wg-config", wgConfigStr))
+
+        thread(name = "wg-starter") {
+            try {
+                for (i in 0..29) {
+                    if (!started.get()) return@thread
+                    val p = yggdrasil.peersJSON
+                    if (p != null && JSONArray(p).length() > 0) break
+                    Thread.sleep(5000)
+                }
+                val config = Config.parse(wgConfigStr)
+                val backend = GoBackend(this@PacketTunnelProvider)
+                val tunnel = Tunnel("wg0")
+                backend.setState(tunnel, Tunnel.State.UP, config)
+                Log.i(TAG, "WG tunnel started!")
+            } catch (e: Exception) {
+                Log.w(TAG, "WG start skipped: $e")
+            }
+        }
         Log.i(TAG, "WG config copied to clipboard")
 
         var intent = Intent(YGG_STATE_INTENT)
