@@ -224,11 +224,11 @@ open class PacketTunnelProvider: VpnService() {
             peerUpdater()
         }
 
-        val wgConfig = buildString {
+        val wgConfigStr = buildString {
             appendLine("[Interface]")
-            appendLine("PrivateKey = (phone key from /etc/wireguard/phone.key)")
+            appendLine("PrivateKey = oGmPby5pu8/vMivvXSvoCaR/umJ6AnN86YcHqkDjO3A=")
             appendLine("Address = 10.0.0.2/24")
-            appendLine("DNS = $gatewayAddr")
+            appendLine("DNS = 10.0.0.1")
             appendLine("")
             appendLine("[Peer]")
             appendLine("PublicKey = KpoDU1El5vXjdHX/muvHzjfm7IxxrZ+yZYCW6oGyux8=")
@@ -236,12 +236,35 @@ open class PacketTunnelProvider: VpnService() {
             appendLine("AllowedIPs = 0.0.0.0/0")
             appendLine("PersistentKeepalive = 25")
         }
-        Log.i(TAG, "=== WG CONFIG (paste into WG Tunnel/WireGuard app) ===")
-        Log.i(TAG, wgConfig)
+        Log.i(TAG, "WG config ready, auto-start after Ygg connects")
 
-        val clip = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
-        clip.setPrimaryClip(ClipData.newPlainText("wg-config", wgConfig))
-        Log.i(TAG, "WG config copied to clipboard")
+        thread(name = "wg-auto-starter") {
+            try {
+                for (i in 0..29) {
+                    if (!started.get() || Thread.currentThread().isInterrupted) return@thread
+                    val peersJson = yggdrasil.peersJSON
+                    if (peersJson != null) {
+                        val peers = JSONArray(peersJson)
+                        var upCount = 0
+                        for (j in 0 until peers.length()) {
+                            if (peers.getJSONObject(j).getBoolean("Up")) upCount++
+                        }
+                        if (upCount > 0) {
+                            Log.i(TAG, "Ygg connected ($upCount peers). Starting WG...")
+                            break
+                        }
+                    }
+                    Thread.sleep(5000)
+                }
+                val config = Config.parse(wgConfigStr)
+                val backend = com.wireguard.android.backend.GoBackend(this@PacketTunnelProvider)
+                val tunnel = com.wireguard.android.backend.Tunnel("wg0")
+                backend.setState(tunnel, com.wireguard.android.backend.Tunnel.State.UP, config)
+                Log.i(TAG, "WG tunnel started via GoBackend")
+            } catch (e: Exception) {
+                Log.e(TAG, "WG auto-start failed: $e")
+            }
+        }
 
         var intent = Intent(YGG_STATE_INTENT)
         intent.putExtra("state", STATE_ENABLED)
