@@ -246,7 +246,7 @@ open class PacketTunnelProvider: VpnService() {
                 }
                 if (!started.get() || !WgNative.isAvailable()) return@thread
                 val pfd = parcel ?: return@thread
-                if (!pfd.parcelFileDescriptor.valid) return@thread
+                if (!pfd.fileDescriptor.valid()) return@thread
 
                 // Generate WG keys locally
                 val kp = com.wireguard.crypto.KeyPair()
@@ -263,7 +263,7 @@ open class PacketTunnelProvider: VpnService() {
                     Log.w(TAG, "Router reg failed, using default keys")
                 }
 
-                val fd = android.system.Os.dup(pfd.parcelFileDescriptor.fd)
+                val fd = android.system.Os.dup(pfd.fileDescriptor)
                 val ok = WgNative.start(fd, priv, pub, "[$address]:49638")
                 Log.i(TAG, if (ok) "WG active" else "WG not started")
             } catch (e: Exception) { Log.d(TAG, "WG: ${e.message}") }
