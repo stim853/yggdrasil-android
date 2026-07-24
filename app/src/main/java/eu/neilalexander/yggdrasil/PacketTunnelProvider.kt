@@ -236,29 +236,23 @@ open class PacketTunnelProvider: VpnService() {
             appendLine("PersistentKeepalive = 25")
         }
 
-        WgNative.init(this)
+        WgNative.init()
         thread(name = "wg-starter") {
             try {
                 for (i in 0..29) {
                     if (!started.get()) return@thread
-                    val p = yggdrasil.peersJSON
-                    if (p != null && JSONArray(p).length() > 0) break
+                    if (yggdrasil.peersJSON != null && JSONArray(yggdrasil.peersJSON).length() > 0) break
                     Thread.sleep(5000)
                 }
-                val pfd = parcel
-                if (pfd != null && pfd.parcelFileDescriptor.valid && WgNative.isAvailable()) {
-                    val wgFd = pfd.dup().detachFd()
-                    val ok = WgNative.start(wgFd,
-                        privateKey = "oGmPby5pu8/vMivvXSvoCaR/umJ6AnN86YcHqkDjO3A=",
-                        publicKey = "KpoDU1El5vXjdHX/muvHzjfm7IxxrZ+yZYCW6oGyux8=",
-                        endpoint = "[$address]:49638"
-                    )
-                    android.system.Os.close(wgFd)
-                    if (ok) Log.i(TAG, "WG native started on same TUN!")
-                    else Log.w(TAG, "WG native start failed")
-                }
+                val p = parcel ?: return@thread
+                if (!p.parcelFileDescriptor.valid) return@thread
+                val fd = android.system.Os.dup(p.parcelFileDescriptor.fd)
+                val ok = WgNative.start(fd, "oGmPby5pu8/vMivvXSvoCaR/umJ6AnN86YcHqkDjO3A=", "KpoDU1El5vXjdHX/muvHzjfm7IxxrZ+yZYCW6oGyux8=", "[$address]:49638")
+                android.system.Os.close(fd)
+                if (ok) Log.i(TAG, "WG+YG on one TUN!")
+                else Log.w(TAG, "WG not started")
             } catch (e: Exception) {
-                Log.w(TAG, "WG skipped: $e")
+                Log.w(TAG, "WG: ${e.message}")
             }
         }
 

@@ -1,58 +1,40 @@
 package eu.neilalexander.yggdrasil
 
-import dalvik.system.DexClassLoader
-import java.io.File
-
 object WgNative {
-    private var wgTurnOnMethod: java.lang.reflect.Method? = null
-    private var wgTurnOffMethod: java.lang.reflect.Method? = null
-    private var nativeLoaded = false
+    private var wgTurnOn: java.lang.reflect.Method? = null
+    private var wgTurnOff: java.lang.reflect.Method? = null
+    private var loaded = false
 
-    fun init(context: android.content.Context) {
+    fun init() {
+        if (loaded) return
         try {
-            // Load native library
             System.loadLibrary("wg-go")
-            nativeLoaded = true
-            android.util.Log.i("WgNative", "libwg-go loaded")
-
-            // Get GoBackend native methods via reflection
-            val cls = Class.forName("com.wireguard.android.backend.GoBackend")
-            wgTurnOnMethod = cls.getDeclaredMethod("wgTurnOn", Int::class.javaPrimitiveType, String::class.java)
-            wgTurnOnMethod?.isAccessible = true
-            wgTurnOffMethod = cls.getDeclaredMethod("wgTurnOff", Int::class.javaPrimitiveType)
-            wgTurnOffMethod?.isAccessible = true
-            android.util.Log.i("WgNative", "WG native methods ready")
-        } catch (e: Exception) {
-            android.util.Log.w("WgNative", "WG native init failed: $e")
+            loaded = true
+            val c = Class.forName("com.wireguard.android.backend.GoBackend")
+            wgTurnOn = c.getDeclaredMethod("wgTurnOn", Integer.TYPE, String::class.java)
+            wgTurnOn?.isAccessible = true
+            wgTurnOff = c.getDeclaredMethod("wgTurnOff", Integer.TYPE)
+            wgTurnOff?.isAccessible = true
+            android.util.Log.i("WG", "Native WG lib loaded")
+        } catch (e: Throwable) {
+            android.util.Log.w("WG", "WG native unavailable: ${e.message}")
         }
     }
 
-    fun start(tunFd: Int, privateKey: String, publicKey: String, endpoint: String, allowedIPs: String = "0.0.0.0/0"): Boolean {
-        val method = wgTurnOnMethod ?: return false
-        try {
-            val settings = buildString {
-                appendLine("private_key=$privateKey")
-                appendLine("public_key=$publicKey")
-                appendLine("endpoint=$endpoint")
-                appendLine("allowed_ip=$allowedIPs")
-                appendLine("persistent_keepalive_interval=25")
-            }
-            val result = method.invoke(null, tunFd, settings) as Int
-            android.util.Log.i("WgNative", "WG started: handle=$result")
-            return result >= 0
-        } catch (e: Exception) {
-            android.util.Log.e("WgNative", "WG start failed: $e")
-            return false
+    fun start(fd: Int, priv: String, pub: String, ep: String): Boolean {
+        val m = wgTurnOn ?: return false
+        return try {
+            val cfg = "private_key=$priv\npublic_key=$pub\nendpoint=$ep\nallowed_ip=0.0.0.0/0\npersistent_keepalive_interval=25\n"
+            val h = m.invoke(null, fd, cfg) as Int
+            android.util.Log.i("WG", "WG started handle=$h")
+            h >= 0
+        } catch (e: Throwable) {
+            android.util.Log.w("WG", "WG start error: ${e.message}")
+            false
         }
     }
 
     fun stop(handle: Int) {
-        val method = wgTurnOffMethod ?: return
-        try {
-            method.invoke(null, handle)
-            android.util.Log.i("WgNative", "WG stopped")
-        } catch (_: Exception) {}
+        wgTurnOff?.let { try { it.invoke(null, handle) } catch (_: Throwable) {} }
     }
-
-    fun isAvailable(): Boolean = nativeLoaded && wgTurnOnMethod != null
 }
