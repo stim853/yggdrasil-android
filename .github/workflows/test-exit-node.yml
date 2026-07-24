@@ -1,7 +1,7 @@
 name: Test Yggdrasil Exit Node
 on: [workflow_dispatch]
 jobs:
-  build-and-test:
+  full-test:
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -42,45 +42,52 @@ jobs:
       - name: Build APK
         run: ./gradlew assembleDebug
 
-      # ===== YGG NETWORK TEST =====
-      - name: Install yggdrasil
+      # ===== NETWORK TEST: Ygg + WG =====
+      - name: Install yggdrasil + wireguard
         run: |
           sudo apt-get update -qq
-          sudo apt-get install -y -qq yggdrasil || true
-          # fallback: download binary
-          which yggdrasil || (
-            curl -sL https://github.com/yggdrasil-network/yggdrasil-go/releases/latest/download/yggdrasil-linux-amd64 -o /tmp/yggdrasil
-            chmod +x /tmp/yggdrasil
-            sudo mv /tmp/yggdrasil /usr/local/bin/
-          )
+          sudo apt-get install -y -qq wireguard resolvconf
+          curl -sL https://github.com/yggdrasil-network/yggdrasil-go/releases/latest/download/yggdrasil-linux-amd64 -o /tmp/yggdrasil 2>/dev/null || curl -sL https://github.com/yggdrasil-network/yggdrasil-go/releases/download/v0.5.12/yggdrasil-linux-amd64 -o /tmp/yggdrasil
+          chmod +x /tmp/yggdrasil
+          sudo mv /tmp/yggdrasil /usr/local/bin/
           yggdrasil --version
 
-      - name: Connect CI to Yggdrasil network
+      - name: Start Yggdrasil mesh
         run: |
           yggdrasil -genconf > /tmp/ygg.conf
-          # Add public peers to connect to router's ygg
-          echo "Peers: [" >> /tmp/ygg.conf
-          echo '  "tcp://45.147.200.202:12402",' >> /tmp/ygg.conf
-          echo '  "tls://45.147.200.202:443",' >> /tmp/ygg.conf
-          echo '  "tcp://37.192.232.33:8080"' >> /tmp/ygg.conf
-          echo "]" >> /tmp/ygg.conf
-          yggdrasil -useconffile /tmp/ygg.conf &
-          YGG_PID=$!
-          sleep 10
-          # Check connection
-          curl -6sf --connect-timeout 5 "http://[200:5d25:1a4d:7ec0:8802:cab1:64fe:ab7c]:80/cgi-bin/peers" -o /tmp/peers.json -w "ROUTER_HTTP: %{http_code}\n" || echo "YGG_NOT_READY"
-          sleep 20
-          curl -6sf --connect-timeout 5 "http://[200:5d25:1a4d:7ec0:8802:cab1:64fe:ab7c]:80/cgi-bin/peers" -o /tmp/peers.json -w "ROUTER_HTTP: %{http_code}\n" || echo "YGG_NOT_READY"
+          sed -i 's|Peers: \[\]|Peers: ["tcp://45.147.200.202:12402","tls://45.147.200.202:443","tcp://37.192.232.33:8080","tls://37.192.232.33:442"]|' /tmp/ygg.conf
+          sudo yggdrasil -useconffile /tmp/ygg.conf &
+          echo "YGG_PID=$!"
+          sleep 15
 
-      - name: Test router API through ygg6
+      - name: Test router reachability
         run: |
-          if [ -f /tmp/peers.json ] && [ -s /tmp/peers.json ]; then
-            echo "=== ROUTER PEERS ==="
-            cat /tmp/peers.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'Peers: {d.get(\"count\",0)}, total_up: {d.get(\"total_up\",0)}')"
-            echo "ROUTER_ACCESS: OK"
-          else
-            echo "ROUTER_ACCESS: FAIL (router unreachable from CI)"
-          fi
+          echo "=== PING ROUTER ==="
+          ping -c 3 -W 3 200:5d25:1a4d:7ec0:8802:cab1:64fe:ab7c 2>&1 | tail -3
+          echo "=== ROUTER PEERS API ==="
+          curl -6sf --connect-timeout 10 "http://[200:5d25:1a4d:7ec0:8802:cab1:64fe:ab7c]/cgi-bin/peers" -o /tmp/peers.json -w "HTTP %{http_code} %{size_download}B\n"
+          cat /tmp/peers.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(f'TOP-10: {d.get(\"count\",0)}, TOTAL_UP: {d.get(\"total_up\",0)}')"
+
+      - name: Test WireGuard through Ygg
+        run: |
+          echo "=== WG CONFIG ==="
+          # Create WG interface to connect to router through ygg6
+          sudo ip link add wg0 type wireguard
+          sudo wg set wg0 private-key <(echo "oGmPby5pu8/vMivvXSvoCaR/umJ6AnN86YcHqkDjO3A=")
+          sudo wg set wg0 peer KpoDU1El5vXjdHX/muvHzjfm7IxxrZ+yZYCW6oGyux8= allowed-ips 10.0.0.0/24 endpoint [200:5d25:1a4d:7ec0:8802:cab1:64fe:ab7c]:49638 persistent-keepalive 25
+          sudo ip addr add 10.0.0.3/24 dev wg0
+          sudo ip link set wg0 up
+          echo "=== WG STATUS ==="
+          sudo wg show wg0
+          echo "=== WG HANDSHAKE ==="
+          sleep 5
+          sudo wg show wg0 | grep -A3 peer
+          sleep 10
+          sudo wg show wg0 | grep -A3 peer
+          echo "=== WG PING ==="
+          ping -c 3 -W 3 10.0.0.1 2>&1 | tail -3
+          echo "=== WG SPEED TEST ==="
+          curl -sf --connect-timeout 10 -o /dev/null -w "LATENCY: %{time_total}s SPEED: %{speed_download}B/s\n" 10.0.0.1/cgi-bin/peers || echo "SPEED_TEST_SKIPPED"
 
       # ===== EMULATOR TEST =====
       - name: Enable KVM
@@ -111,7 +118,7 @@ jobs:
             adb shell screencap -p /sdcard/screen.png
             adb pull /sdcard/screen.png ./screen.png
             echo "=== LOGS ==="
-            adb logcat -d | grep -i "ygg\|wg\|wireguard\|GoBackend\|PacketTunnel" | tail -30
+            adb logcat -d | grep -i "ygg\|wg\|wireguard\|GoBackend\|PacketTunnel\|WgRunner" | tail -40
             echo "=== MEM ==="
             adb shell dumpsys meminfo eu.neilalexander.yggdrasil 2>/dev/null | grep "TOTAL" | head -3
             echo "=== DONE ==="
@@ -120,9 +127,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-results
+          name: full-test-results
           path: |
             app/build/outputs/apk/debug/*.apk
             *.png
-            /tmp/peers*.json
+            /tmp/peers.json
           retention-days: 14
