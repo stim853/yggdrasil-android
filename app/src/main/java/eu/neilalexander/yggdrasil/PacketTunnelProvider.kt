@@ -236,8 +236,27 @@ open class PacketTunnelProvider: VpnService() {
             appendLine("PersistentKeepalive = 25")
         }
 
-        WgNative.init()
-        Log.i(TAG, "WG libraries loaded, use WG Tunnel app with wg config")
+        val wg = WgRunner(this)
+        thread(name = "wg-starter") {
+            try {
+                for (i in 0..29) {
+                    if (!started.get()) return@thread
+                    val p = yggdrasil.peersJSON
+                    if (p != null && JSONArray(p).length() > 0) break
+                    Thread.sleep(5000)
+                }
+                if (!started.get()) return@thread
+                Log.i(TAG, "Starting WG via GoBackend (takes over VPN from Ygg)")
+                val ok = wg.start("[$address]:49638")
+                if (ok) {
+                    Log.i(TAG, "WG ACTIVE. Ygg mesh running in background.")
+                } else {
+                    Log.w(TAG, "WG start failed, Ygg stays as VPN")
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "WG: ${e.message}")
+            }
+        }
 
         var intent = Intent(YGG_STATE_INTENT)
         intent.putExtra("state", STATE_ENABLED)
