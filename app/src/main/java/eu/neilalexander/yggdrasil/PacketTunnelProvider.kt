@@ -287,30 +287,20 @@ open class PacketTunnelProvider: VpnService() {
             networkCallback = null
         }
 
-        Exitnode.stop()
-        yggdrasil.stop()
+        try { Exitnode.stop() } catch (_: Exception) {}
+        try { yggdrasil.stop() } catch (_: Exception) {}
+        try { readerStream?.close() } catch (_: Exception) {}
+        try { writerStream?.close() } catch (_: Exception) {}
+        readerStream = null; writerStream = null
+        try { parcel?.close() } catch (_: Exception) {}
+        parcel = null
 
-        readerStream?.let {
-            it.close()
-            readerStream = null
-        }
-        writerStream?.let {
-            it.close()
-            writerStream = null
-        }
-        parcel?.let {
-            it.close()
-            parcel = null
-        }
-
-        var intent = Intent(STATE_INTENT)
-        intent.putExtra("type", "state")
-        intent.putExtra("started", false)
-        LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
-
-        intent = Intent(YGG_STATE_INTENT)
-        intent.putExtra("state", STATE_DISABLED)
-        LocalBroadcastManager.getInstance(this).sendBroadcast(intent)
+        LocalBroadcastManager.getInstance(this).sendBroadcast(Intent(STATE_INTENT).apply {
+            putExtra("type", "state"); putExtra("started", false)
+        })
+        LocalBroadcastManager.getInstance(this).sendBroadcast(Intent(YGG_STATE_INTENT).apply {
+            putExtra("state", STATE_DISABLED)
+        })
 
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
