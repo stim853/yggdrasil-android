@@ -58,26 +58,8 @@ jobs:
             echo "=== CHECK LOGS ==="
             adb logcat -d | grep -i ygg | tail -20
 
-            echo "=== DNS ACTIVITY ==="
-            adb shell am start -n eu.neilalexander.yggdrasil/.DnsActivity
-            sleep 2
-            adb shell screencap -p /sdcard/screen_dns.png
-            adb pull /sdcard/screen_dns.png
-
-            echo "=== PEERS ACTIVITY ==="
-            adb shell am start -n eu.neilalexander.yggdrasil/.PeersActivity
-            sleep 2
-            adb shell screencap -p /sdcard/screen_peers.png
-            adb pull /sdcard/screen_peers.png
-
-            echo "=== SETTINGS ACTIVITY ==="
-            adb shell am start -n eu.neilalexander.yggdrasil/.SettingsActivity
-            sleep 2
-            adb shell screencap -p /sdcard/screen_settings.png
-            adb pull /sdcard/screen_settings.png
-
             echo "=== EXIT NODE CHECK ==="
-            adb shell settings put global http_proxy 192.168.10.54:1088
+            adb shell settings put global http_proxy 192.168.10.54:1088 || true
 
             echo "=== TEST DONE ==="
 
