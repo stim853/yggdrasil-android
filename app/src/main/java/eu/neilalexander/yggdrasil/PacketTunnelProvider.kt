@@ -16,9 +16,6 @@ import android.util.Log
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import androidx.preference.PreferenceManager
 import com.wireguard.config.Config
-import com.wireguard.config.InetNetwork
-import com.wireguard.crypto.Key
-import com.wireguard.crypto.KeyPair
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import javax.net.ssl.HostnameVerifier
@@ -236,35 +233,11 @@ open class PacketTunnelProvider: VpnService() {
             appendLine("AllowedIPs = 0.0.0.0/0")
             appendLine("PersistentKeepalive = 25")
         }
-        Log.i(TAG, "WG config ready, auto-start after Ygg connects")
-
-        thread(name = "wg-auto-starter") {
-            try {
-                for (i in 0..29) {
-                    if (!started.get() || Thread.currentThread().isInterrupted) return@thread
-                    val peersJson = yggdrasil.peersJSON
-                    if (peersJson != null) {
-                        val peers = JSONArray(peersJson)
-                        var upCount = 0
-                        for (j in 0 until peers.length()) {
-                            if (peers.getJSONObject(j).getBoolean("Up")) upCount++
-                        }
-                        if (upCount > 0) {
-                            Log.i(TAG, "Ygg connected ($upCount peers). Starting WG...")
-                            break
-                        }
-                    }
-                    Thread.sleep(5000)
-                }
-                val config = Config.parse(wgConfigStr)
-                val backend = com.wireguard.android.backend.GoBackend(this@PacketTunnelProvider)
-                val tunnel = com.wireguard.android.backend.Tunnel("wg0")
-                backend.setState(tunnel, com.wireguard.android.backend.Tunnel.State.UP, config)
-                Log.i(TAG, "WG tunnel started via GoBackend")
-            } catch (e: Exception) {
-                Log.e(TAG, "WG auto-start failed: $e")
-            }
-        }
+        Log.i(TAG, "=== WG CONFIG ===")
+        Log.i(TAG, wgConfigStr)
+        val clip = getSystemService(CLIPBOARD_SERVICE) as ClipboardManager
+        clip.setPrimaryClip(ClipData.newPlainText("wg-config", wgConfigStr))
+        Log.i(TAG, "WG config copied to clipboard")
 
         var intent = Intent(YGG_STATE_INTENT)
         intent.putExtra("state", STATE_ENABLED)
