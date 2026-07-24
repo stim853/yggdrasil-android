@@ -237,24 +237,7 @@ open class PacketTunnelProvider: VpnService() {
         }
 
         WgNative.init()
-        thread(name = "wg-starter") {
-            try {
-                for (i in 0..29) {
-                    if (!started.get()) return@thread
-                    if (yggdrasil.peersJSON != null && JSONArray(yggdrasil.peersJSON).length() > 0) break
-                    Thread.sleep(5000)
-                }
-                val p = parcel ?: return@thread
-                if (!p.parcelFileDescriptor.valid) return@thread
-                val fd = android.system.Os.dup(p.parcelFileDescriptor.fd)
-                val ok = WgNative.start(fd, "oGmPby5pu8/vMivvXSvoCaR/umJ6AnN86YcHqkDjO3A=", "KpoDU1El5vXjdHX/muvHzjfm7IxxrZ+yZYCW6oGyux8=", "[$address]:49638")
-                android.system.Os.close(fd)
-                if (ok) Log.i(TAG, "WG+YG on one TUN!")
-                else Log.w(TAG, "WG not started")
-            } catch (e: Exception) {
-                Log.w(TAG, "WG: ${e.message}")
-            }
-        }
+        Log.i(TAG, "WG libraries loaded, use WG Tunnel app with wg config")
 
         var intent = Intent(YGG_STATE_INTENT)
         intent.putExtra("state", STATE_ENABLED)
