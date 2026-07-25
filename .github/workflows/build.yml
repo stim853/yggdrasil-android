@@ -1,0 +1,90 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  ANDROID_SDK_ROOT: /opt/android-sdk
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 17
+
+      - name: Set up Go 1.23
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK components
+        run: |
+          SDKMANAGER=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager
+          if [ ! -f "$SDKMANAGER" ]; then
+            # setup-android may have installed to a different path
+            SDKMANAGER=$(find $ANDROID_SDK_ROOT -name sdkmanager -type f 2>/dev/null | head -1)
+          fi
+          if [ -z "$SDKMANAGER" ]; then
+            echo "::error::sdkmanager not found in $ANDROID_SDK_ROOT"
+            exit 1
+          fi
+          # sdkmanager requires Java 8/11, use system Java
+          export JAVA_HOME=/usr/lib/jvm/temurin-11-jdk-amd64
+          yes | $SDKMANAGER \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "platform-tools" \
+            "ndk;27.2.12479018"
+          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> $GITHUB_ENV
+
+      - name: Setup gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          gomobile init
+
+      - name: Clone yggdrasil-go and add AmneziaWG
+        run: |
+          cd /tmp
+          git clone --depth=1 https://github.com/yggdrasil-network/yggdrasil-go.git
+          mkdir -p yggdrasil-go/contrib/awgmobile
+          cp $GITHUB_WORKSPACE/contrib/awgmobile/awgmobile.go yggdrasil-go/contrib/awgmobile/
+          cd yggdrasil-go
+          go get golang.org/x/mobile/bind
+          go get github.com/amnezia-vpn/amneziawg-go@latest
+          go mod tidy
+          echo "YGG_DIR=/tmp/yggdrasil-go" >> $GITHUB_ENV
+
+      - name: Build AAR (Yggdrasil + AmneziaWG)
+        run: |
+          cd $YGG_DIR
+          PATH=~/go/bin:$PATH gomobile bind \
+            -target android \
+            -androidapi 26 \
+            -tags mobile \
+            -o $GITHUB_WORKSPACE/app/libs/holowbark.aar \
+            -ldflags="-s -w -checklinkname=0 -extldflags=-Wl,-z,max-page-size=16384" \
+            ./contrib/mobile \
+            ./src/config \
+            ./contrib/awgmobile
+
+      - name: Build APK
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: holowbark-apk
+          path: app/build/outputs/apk/debug/*.apk
