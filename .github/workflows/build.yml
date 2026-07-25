@@ -57,6 +57,8 @@ jobs:
         run: |
           export PATH=$HOME/go/bin:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
           cd $YGG_DIR
+          go get -tool golang.org/x/mobile/cmd/gobind
+          go mod tidy
           gomobile bind \
             -target android \
             -androidapi 26 \
