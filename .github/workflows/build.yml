@@ -30,12 +30,17 @@ jobs:
 
       - name: Install Android SDK components
         run: |
-          # Find sdkmanager location
-          SDKMANAGER=$(find $ANDROID_SDK_ROOT -name sdkmanager -type f 2>/dev/null | head -1)
+          SDKMANAGER=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin/sdkmanager
+          if [ ! -f "$SDKMANAGER" ]; then
+            # setup-android may have installed to a different path
+            SDKMANAGER=$(find $ANDROID_SDK_ROOT -name sdkmanager -type f 2>/dev/null | head -1)
+          fi
           if [ -z "$SDKMANAGER" ]; then
             echo "::error::sdkmanager not found in $ANDROID_SDK_ROOT"
             exit 1
           fi
+          # sdkmanager requires Java 8/11, use system Java
+          export JAVA_HOME=/usr/lib/jvm/temurin-11-jdk-amd64
           yes | $SDKMANAGER \
             "platforms;android-35" \
             "build-tools;35.0.0" \
