@@ -12,7 +12,6 @@ package awgmobile
 import (
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"os"
 	"strings"
