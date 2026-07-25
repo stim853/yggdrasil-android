@@ -39,6 +39,7 @@ jobs:
           unzip -q commandlinetools-linux-12266719_latest.zip
           mv cmdline-tools $ANDROID_SDK_ROOT/cmdline-tools/latest
           export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
+          export SKIP_JDK_VERSION_CHECK=1
           yes | sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
           yes | sdkmanager "ndk;27.2.12479018"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> $GITHUB_ENV
