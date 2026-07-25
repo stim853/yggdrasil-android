@@ -72,7 +72,6 @@ class AwgManager(
             AppLogger.w(TAG, "up(): $e")
         }
     }
-    }
 
     fun stop() {
         activeScope?.cancel(); activeScope = null
