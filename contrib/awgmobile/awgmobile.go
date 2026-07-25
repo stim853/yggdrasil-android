@@ -18,9 +18,9 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/amnezia-vpn/amneziawg-go/conn"
-	"github.com/amnezia-vpn/amneziawg-go/device"
-	"github.com/amnezia-vpn/amneziawg-go/tun"
+	"golang.zx2c4.com/wireguard/conn"
+	"golang.zx2c4.com/wireguard/device"
+	"golang.zx2c4.com/wireguard/tun"
 )
 
 // Backend is the gomobile entry type.
@@ -70,6 +70,21 @@ func (b *Backend) Up() error {
 	}
 	b.dev.Up()
 	return nil
+}
+
+// IsClosed reports whether the backend's done channel is closed (debug).
+func (b *Backend) IsClosed() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.bind == nil {
+		return true
+	}
+	select {
+	case <-b.bind.done:
+		return true
+	default:
+		return false
+	}
 }
 
 // Stop shuts down the AWG device.

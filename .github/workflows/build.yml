@@ -49,7 +49,7 @@ jobs:
           cp $GITHUB_WORKSPACE/contrib/awgmobile/awgmobile.go yggdrasil-go/contrib/awgmobile/
           cd yggdrasil-go
           go get golang.org/x/mobile/bind
-          go get github.com/amnezia-vpn/amneziawg-go@latest
+          go get golang.zx2c4.com/wireguard@latest
           go mod tidy
           echo "YGG_DIR=/tmp/yggdrasil-go" >> $GITHUB_ENV
 
