@@ -53,16 +53,22 @@ func (b *Backend) Start(settings string, mtu int) error {
 		bind.close()
 		return err
 	}
-	if err := dev.Up(); err != nil {
-		dev.Close()
-		virt.Close()
-		bind.close()
-		return err
-	}
 
 	b.dev = dev
 	b.virt = virt
 	b.bind = bind
+	return nil
+}
+
+// Up brings the device up. Must be called after Start() and after the
+// bridge loop is ready to read WG packets from RecvWGPacket().
+func (b *Backend) Up() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.dev == nil {
+		return errors.New("not started")
+	}
+	b.dev.Up()
 	return nil
 }
 
