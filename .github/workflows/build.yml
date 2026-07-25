@@ -25,23 +25,30 @@ jobs:
         with:
           go-version: '1.23'
 
+      - name: Set up Java 8 (for sdkmanager)
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 8
+
       - name: Install Android SDK
         run: |
-          mkdir -p $ANDROID_SDK_ROOT/platforms $ANDROID_SDK_ROOT/build-tools $ANDROID_SDK_ROOT/ndk
+          mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
           cd /tmp
-          # Download platform + build-tools directly
-          wget -q https://dl.google.com/android/repository/platform-35_r03.zip
-          unzip -q platform-35_r03.zip -d $ANDROID_SDK_ROOT/platforms/android-35
-          wget -q https://dl.google.com/android/repository/build-tools_r35-linux.zip
-          unzip -q build-tools_r35-linux.zip -d $ANDROID_SDK_ROOT/build-tools/35.0.0
-          # Download NDK r27
-          wget -q https://dl.google.com/android/repository/android-ndk-r27c-linux.zip
-          unzip -q android-ndk-r27c-linux.zip -d $ANDROID_SDK_ROOT/ndk/
-          mv $ANDROID_SDK_ROOT/ndk/android-ndk-r27c $ANDROID_SDK_ROOT/ndk/27.2.12479018
-          # Create platform-tools dir (required by Gradle)
-          mkdir -p $ANDROID_SDK_ROOT/platform-tools
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip
+          unzip -q commandlinetools-linux-12266719_latest.zip
+          mv cmdline-tools $ANDROID_SDK_ROOT/cmdline-tools/latest
+          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
+          yes | sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          yes | sdkmanager "ndk;27.2.12479018"
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> $GITHUB_ENV
           echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
+
+      - name: Set up Java 17 (for build)
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 17
 
       - name: Setup gomobile
         run: |
