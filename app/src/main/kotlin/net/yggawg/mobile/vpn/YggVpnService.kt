@@ -349,13 +349,18 @@ class YggVpnService : VpnService() {
             }
             if (!isActive) return@launch
 
-            // 3. Start AWG backend
+            // 3. Start AWG backend (no Up() yet — device is configured but down)
             awgMgr.start(awgConfig)
             // Give the Go runtime a moment to fully initialise the WG device
-            delay(300)
+            delay(100)
 
             // 4. Bridge loop: AWG outbound WG packets → encapsulate in IPv6 UDP → Yggdrasil
+            // NOTE: bridge must be ready BEFORE bringing the device Up(),
+            // otherwise WG handshake packets get dropped.
             AppLogger.i(TAG, "AWG→Ygg bridge started, ourAddr=${yggMgr.getAddress()} serverAddr=$addrStr:$serverPort")
+
+            // Bring WG device UP now that the bridge is ready to forward packets
+            awgMgr.up()
 
             // Trigger WG handshake; repeat every 3 s in a separate job until the first
             // WG packet arrives (handshake initiated) so we don't hang forever on a single trigger.

@@ -52,15 +52,26 @@ class AwgManager(
         try {
             b.start(settings, AWG_MTU)
             backend = b
-            onStatusChange(LayerState.STARTING)   // UP only after first decrypted packet
+            onStatusChange(LayerState.STARTING)
             val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
             activeScope = scope
             scope.launch { readLoop(b, scope) }
-            AppLogger.i(TAG, "$protocolLabel started")
+            AppLogger.i(TAG, "$protocolLabel started (down)")
         } catch (e: Exception) {
             AppLogger.e(TAG, "Failed to start $protocolLabel: ${e.javaClass.simpleName}: ${e.message}")
             onStatusChange(LayerState.ERROR)
         }
+    }
+
+    /** Bring the WG device UP (starts handshake etc.). Call after bridge is ready. */
+    fun up() {
+        try {
+            backend?.up()
+            AppLogger.i(TAG, "WG device brought UP")
+        } catch (e: Exception) {
+            AppLogger.w(TAG, "up(): $e")
+        }
+    }
     }
 
     fun stop() {
