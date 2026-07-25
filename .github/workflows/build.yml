@@ -25,31 +25,14 @@ jobs:
         with:
           go-version: '1.23'
 
-      - name: Set up Java 8 (for sdkmanager)
-        uses: actions/setup-java@v4
-        with:
-          distribution: zulu
-          java-version: 8
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v4
 
-      - name: Install Android SDK
+      - name: Install extra SDK components
         run: |
-          mkdir -p $ANDROID_SDK_ROOT/cmdline-tools
-          cd /tmp
-          wget -q https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip
-          unzip -q commandlinetools-linux-12266719_latest.zip
-          mv cmdline-tools $ANDROID_SDK_ROOT/cmdline-tools/latest
-          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
-          export SKIP_JDK_VERSION_CHECK=1
-          yes | sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
-          yes | sdkmanager "ndk;27.2.12479018"
+          yes | sdkmanager "platforms;android-35" "build-tools;35.0.0"
+          sdkmanager "ndk;27.2.12479018" || true
           echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/27.2.12479018" >> $GITHUB_ENV
-          echo "ANDROID_HOME=$ANDROID_SDK_ROOT" >> $GITHUB_ENV
-
-      - name: Set up Java 17 (for build)
-        uses: actions/setup-java@v4
-        with:
-          distribution: zulu
-          java-version: 17
 
       - name: Setup gomobile
         run: |
