@@ -189,11 +189,13 @@ class YggdrasilManager(
                 lastCount = count
             }
 
-            if (dead > 2 && onNeedPeerRefresh != null) {
+            // Don't trigger WG restart when Ygg peers die.
+            // As long as at least one peer is UP, the mesh routes fine.
+            if (dead > 2 && onNeedPeerRefresh != null && count == 0) {
                 val now = System.currentTimeMillis()
                 if (now - lastRefreshWarning > 60_000) {
                     lastRefreshWarning = now
-                    AppLogger.i(TAG, "Too many dead peers ($dead), refreshing…")
+                    AppLogger.i(TAG, "All Ygg peers dead ($dead) — refreshing…")
                     val newPeers = onNeedPeerRefresh()
                     if (newPeers.isNotEmpty()) {
                         AppLogger.i(TAG, "Auto-added ${newPeers.size} fresh peer(s)")

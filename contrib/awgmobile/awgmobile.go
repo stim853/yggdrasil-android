@@ -269,10 +269,10 @@ func (b *chanBind) Open(port uint16) ([]conn.ReceiveFunc, uint16, error) {
 	recv := func(packets [][]byte, sizes []int, eps []conn.Endpoint) (int, error) {
 		select {
 		case <-b.done:
-			return 0, net.ErrClosed
+			return 0, nil  // silent return, wireguard will call Open again
 		case p, ok := <-b.toRecv:
 			if !ok {
-				return 0, net.ErrClosed
+				return 0, nil
 			}
 			n := copy(packets[0], p)
 			sizes[0] = n
@@ -300,7 +300,9 @@ func (b *chanBind) Send(bufs [][]byte, ep conn.Endpoint) error {
 		select {
 		case b.toSend <- cp:
 		case <-b.done:
-			return net.ErrClosed
+			// Don't return error — wireguard will retry on its own.
+			// Returning ErrClosed causes the peer to be permanently stuck.
+			// Just drop silently.
 		default: // drop if full
 		}
 	}
