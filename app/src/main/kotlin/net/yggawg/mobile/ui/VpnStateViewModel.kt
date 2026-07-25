@@ -73,6 +73,9 @@ class VpnStateViewModel(app: Application) : AndroidViewModel(app) {
     private val _yggDnsEnabled = MutableStateFlow(prefs.getBoolean("ygg_dns_enabled", false))
     val yggDnsEnabled: StateFlow<Boolean> = _yggDnsEnabled.asStateFlow()
 
+    private val _autoPeerStatus = MutableStateFlow<String?>(null)
+    val autoPeerStatus: StateFlow<String?> = _autoPeerStatus.asStateFlow()
+
     // -------------------------------------------------------------------------
     // Broadcast receiver
     // -------------------------------------------------------------------------
@@ -230,9 +233,6 @@ class VpnStateViewModel(app: Application) : AndroidViewModel(app) {
             YggNetworkState.pinging.value = false
         }
     }
-
-    private val _autoPeerStatus = MutableStateFlow<String?>(null)
-    val autoPeerStatus: StateFlow<String?> = _autoPeerStatus.asStateFlow()
 
     private fun initAutoPeers() {
         val peers = _selectedPeers.value.toMutableSet()
