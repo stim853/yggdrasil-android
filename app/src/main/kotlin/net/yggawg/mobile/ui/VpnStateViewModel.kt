@@ -29,6 +29,7 @@ import net.yggawg.mobile.vpn.YggServiceAccess
 import net.yggawg.mobile.RouterHelper
 import net.yggawg.mobile.vpn.YggVpnService
 import net.yggawg.mobile.vpn.parseYggAddrBytes
+import java.security.KeyPairGenerator
 import java.security.SecureRandom
 
 class VpnStateViewModel(app: Application) : AndroidViewModel(app) {
@@ -40,8 +41,10 @@ class VpnStateViewModel(app: Application) : AndroidViewModel(app) {
     private val yggPrivateKey: String get() {
         val saved = prefs.getString("ygg_private_key", null)
         if (saved != null) return saved
-        val key = ByteArray(32).apply { SecureRandom().nextBytes(this) }
-        val hex = key.joinToString("") { "%02x".format(it) }
+        val kpg = KeyPairGenerator.getInstance("Ed25519")
+        val keyPair = kpg.generateKeyPair()
+        val encoded = keyPair.private.encoded
+        val hex = encoded.joinToString("") { "%02x".format(it) }
         prefs.edit().putString("ygg_private_key", hex).apply()
         return hex
     }

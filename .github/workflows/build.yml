@@ -44,7 +44,7 @@ jobs:
       - name: Clone yggdrasil-go and add AmneziaWG
         run: |
           cd /tmp
-          git clone --depth=1 --branch v0.5.14 https://github.com/yggdrasil-network/yggdrasil-go.git
+          git clone --depth=1 https://github.com/yggdrasil-network/yggdrasil-go.git
           mkdir -p yggdrasil-go/contrib/awgmobile
           cp $GITHUB_WORKSPACE/contrib/awgmobile/awgmobile.go yggdrasil-go/contrib/awgmobile/
           cd yggdrasil-go
