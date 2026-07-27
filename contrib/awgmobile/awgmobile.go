@@ -277,7 +277,11 @@ func (b *chanBind) Open(port uint16) ([]conn.ReceiveFunc, uint16, error) {
 }
 
 func (b *chanBind) Close() error {
-	b.close()
+	// No-op: BindUpdate() calls closeBindLocked() which calls bind.Close(),
+	// but we don't want to close our channel bind — it's used for the lifetime
+	// of the device. The standard UDP bind needs closing/opening on every
+	// BindUpdate, but ours doesn't. The device will still work because
+	// BindUpdate then calls bind.Open() which returns new ReceiveFuncs.
 	return nil
 }
 
