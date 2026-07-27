@@ -27,7 +27,7 @@ jobs:
       - name: Set up Go 1.24
         uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.26'
 
       - name: Setup Android SDK
         run: |
@@ -70,6 +70,8 @@ jobs:
           printf 'package anet\nimport "net"\nfunc Interfaces() ([]net.Interface, error) { return net.Interfaces() }\nfunc InterfaceAddrs() ([]net.Addr, error) { return net.InterfaceAddrs() }\nfunc InterfaceAddrsByInterface(ifi *net.Interface) ([]net.Addr, error) { return ifi.Addrs() }\nfunc SetAndroidVersion(uint) {}\n' > /tmp/stubanet/anet.go
           go mod edit -replace github.com/wlynxg/anet=/tmp/stubanet
           go mod tidy
+          # Patch net.ErrClosed → os.ErrClosed for Go 1.26
+          sed -i 's/net.ErrClosed/os.ErrClosed/g' contrib/awgmobile/awgmobile.go
           echo "YGG_DIR=/tmp/yggdrasil-go" >> $GITHUB_ENV
 
       - name: Build AAR (Yggdrasil + AmneziaWG)
@@ -84,7 +86,7 @@ jobs:
             -androidapi 26 \
             -tags mobile \
             -o $GITHUB_WORKSPACE/app/libs/holowbark.aar \
-            -ldflags="-s -w" \
+            -ldflags="-s -w -checklinkname=0" \
             ./contrib/mobile \
             ./src/config \
             ./contrib/awgmobile
