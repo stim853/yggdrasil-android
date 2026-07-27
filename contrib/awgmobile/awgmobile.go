@@ -58,7 +58,7 @@ func (b *Backend) Start(settings string, mtu int) error {
 
 	virt := newChanTUN(mtu)
 	bind := newChanBind()
-	logger := device.NewLogger(device.LogLevelError, "awg: ")
+	logger := device.NewLogger(device.LogLevelVerbose, "awg: ")
 	dev := device.NewDevice(virt, bind, logger)
 
 	if err := dev.IpcSet(settings); err != nil {
@@ -400,7 +400,8 @@ func BuildUAPISettings(
 	if i5 != "" {
 		fmt.Fprintf(&sb, "i5=%s\n", i5)
 	}
-	fmt.Fprintf(&sb, "\n")
+	// No blank line here! IpcSetOperation treats empty line as end-of-config
+	// and returns. public_key= signals the start of a peer section.
 	fmt.Fprintf(&sb, "public_key=%s\n", publicKeyHex)
 	if presharedKeyHex != "" {
 		fmt.Fprintf(&sb, "preshared_key=%s\n", presharedKeyHex)
