@@ -156,9 +156,14 @@ class VpnStateViewModel(app: Application) : AndroidViewModel(app) {
     private fun loadOrGenerateYggKey(): String {
         val saved = prefs.getString("ygg_private_key", null)
         if (saved != null) return saved
-        val seed = ByteArray(32)
-        SecureRandom().nextBytes(seed)
-        val hex = seed.joinToString("") { "%02x".format(it) }
+        val kpg = java.security.KeyPairGenerator.getInstance("Ed25519")
+        val kp = kpg.generateKeyPair()
+        val privBytes = kp.private.encoded
+        val pubBytes = kp.public.encoded
+        val seed = privBytes.copyOfRange(privBytes.size - 32, privBytes.size)
+        val pub = pubBytes.copyOfRange(pubBytes.size - 32, pubBytes.size)
+        val expanded = seed + pub
+        val hex = expanded.joinToString("") { "%02x".format(it) }
         prefs.edit().putString("ygg_private_key", hex).apply()
         return hex
     }
