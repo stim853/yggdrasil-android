@@ -28,6 +28,7 @@ import net.yggawg.mobile.vpn.YggNetworkState
 import net.yggawg.mobile.vpn.YggServiceAccess
 import net.yggawg.mobile.vpn.YggVpnService
 import net.yggawg.mobile.vpn.parseYggAddrBytes
+import net.yggawg.mobile.AppLogger
 import java.security.SecureRandom
 
 class VpnStateViewModel(app: Application) : AndroidViewModel(app) {
