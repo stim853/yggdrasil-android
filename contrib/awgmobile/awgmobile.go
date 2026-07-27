@@ -10,6 +10,9 @@
 package awgmobile
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -22,6 +25,17 @@ import (
 	"github.com/amnezia-vpn/amneziawg-go/device"
 	"github.com/amnezia-vpn/amneziawg-go/tun"
 )
+
+// GenerateYggKey generates a 64-byte expanded Ed25519 private key
+// and returns it as a hex string (128 hex chars). This key can be
+// used as Yggdrasil PrivateKey in the JSON config.
+func GenerateYggKey() string {
+	_, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return ""
+	}
+	return hex.EncodeToString([]byte(priv))
+}
 
 // Backend is the gomobile entry type.
 type Backend struct {
