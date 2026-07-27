@@ -19,6 +19,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/amnezia-vpn/amneziawg-go/conn"
 	"github.com/amnezia-vpn/amneziawg-go/device"
@@ -139,11 +140,15 @@ func (b *Backend) RecvWGPacket() []byte {
 	if bind == nil {
 		return nil
 	}
-	p, ok := <-bind.toSend
-	if !ok {
+	select {
+	case p, ok := <-bind.toSend:
+		if !ok {
+			return nil
+		}
+		return p
+	case <-time.After(30 * time.Second):
 		return nil
 	}
-	return p
 }
 
 // SendWGPacket injects a WireGuard protocol packet (encrypted) received from
