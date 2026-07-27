@@ -28,12 +28,16 @@ import net.yggawg.mobile.vpn.YggNetworkState
 import net.yggawg.mobile.vpn.YggServiceAccess
 import net.yggawg.mobile.vpn.YggVpnService
 import net.yggawg.mobile.vpn.parseYggAddrBytes
+import java.security.SecureRandom
 
 class VpnStateViewModel(app: Application) : AndroidViewModel(app) {
 
     private val prefs = app.getSharedPreferences("yggawg", Context.MODE_PRIVATE)
     private val db    = PeerDatabase.getInstance(app)
     val repo          = PeerRepository(db, app)
+
+    // Yggdrasil private key (64 hex chars = 32 bytes seed). Generated once, persisted forever.
+    val yggPrivateKey: String = loadOrGenerateYggKey()
 
     // -------------------------------------------------------------------------
     // State
@@ -80,6 +84,16 @@ class VpnStateViewModel(app: Application) : AndroidViewModel(app) {
         override fun onReceive(context: Context, intent: Intent) {
             val status = TunnelStatus.fromIntent(intent) ?: return
             _tunnelStatus.value = status
+            if (status.overall == VpnState.CONNECTED && !peersRefreshed) {
+                peersRefreshed = true
+                viewModelScope.launch {
+                    kotlinx.coroutines.delay(5000)
+                    refreshPeersFromRouter()
+                }
+            }
+            if (status.overall != VpnState.CONNECTED) {
+                peersRefreshed = false
+            }
         }
     }
 
@@ -132,9 +146,20 @@ class VpnStateViewModel(app: Application) : AndroidViewModel(app) {
         val intent = Intent(app, YggVpnService::class.java).apply {
             action = YggVpnService.ACTION_START
             putStringArrayListExtra(YggVpnService.EXTRA_YGG_PEERS, ArrayList(peers))
+            putExtra(YggVpnService.EXTRA_YGG_KEY, yggPrivateKey)
             _awgConfig.value?.let { putExtra(YggVpnService.EXTRA_AWG_CONF, it.toConfString()) }
         }
         ContextCompat.startForegroundService(app, intent)
+    }
+
+    private fun loadOrGenerateYggKey(): String {
+        val saved = prefs.getString("ygg_private_key", null)
+        if (saved != null) return saved
+        val seed = ByteArray(32)
+        SecureRandom().nextBytes(seed)
+        val hex = seed.joinToString("") { "%02x".format(it) }
+        prefs.edit().putString("ygg_private_key", hex).apply()
+        return hex
     }
 
     fun disconnect() {
@@ -236,5 +261,24 @@ class VpnStateViewModel(app: Application) : AndroidViewModel(app) {
     private fun loadSavedPeers() {
         val saved = prefs.getStringSet("selected_peers", null) ?: return
         _selectedPeers.value = saved
+    }
+
+    private var peersRefreshed = false
+
+    fun refreshPeersFromRouter() {
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            if (_tunnelStatus.value.overall != VpnState.CONNECTED) return@launch
+            try {
+                val url = java.net.URL("http://10.100.0.1/peers.json")
+                val json = url.readText()
+                val fresh = org.json.JSONArray(json)
+                val uris = (0 until fresh.length()).map { fresh.getString(it) }.toSet()
+                if (uris.size < 5) return@launch
+                val merged = _selectedPeers.value + uris
+                _selectedPeers.value = merged
+                savePeers(merged)
+                AppLogger.i("VpnStateViewModel", "Peers refreshed: ${uris.size} new from router")
+            } catch (_: Exception) { }
+        }
     }
 }
