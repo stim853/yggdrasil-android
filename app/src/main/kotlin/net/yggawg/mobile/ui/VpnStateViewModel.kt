@@ -270,48 +270,16 @@ class VpnStateViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             if (_tunnelStatus.value.overall != VpnState.CONNECTED) return@launch
             try {
-                val url = java.net.URL("https://10.100.0.1/peers.json")
-                val conn = url.openConnection() as java.net.HttpURLConnection
-                conn.connectTimeout = 5000
-                conn.readTimeout = 5000
-                conn.instanceFollowRedirects = false
-                val json = conn.inputStream.bufferedReader().readText()
-                conn.disconnect()
-                if (conn.responseCode in 300..399) {
-                    val loc = conn.getHeaderField("Location") ?: return@launch
-                    val url2 = java.net.URL(loc)
-                    val conn2 = url2.openConnection() as javax.net.ssl.HttpsURLConnection
-                    val ctx = javax.net.ssl.SSLContext.getInstance("TLS")
-                    ctx.init(null, arrayOf<javax.net.ssl.TrustManager>(
-                        object : javax.net.ssl.X509TrustManager {
-                            override fun checkClientTrusted(c: Array<java.security.cert.X509Certificate>?, a: String?) {}
-                            override fun checkServerTrusted(c: Array<java.security.cert.X509Certificate>?, a: String?) {}
-                            override fun getAcceptedIssuers() = emptyArray<java.security.cert.X509Certificate>()
-                        }), java.security.SecureRandom())
-                    conn2.sslSocketFactory = ctx.socketFactory
-                    conn2.hostnameVerifier = javax.net.ssl.HostnameVerifier { _, _ -> true }
-                    conn2.connectTimeout = 5000
-                    conn2.readTimeout = 5000
-                    val json2 = conn2.inputStream.bufferedReader().readText()
-                    conn2.disconnect()
-                    parseAndSavePeers(json2)
-                } else {
-                    parseAndSavePeers(json)
-                }
+                val url = java.net.URL("http://10.100.0.1/peers.json")
+                val json = url.readText()
+                val fresh = org.json.JSONArray(json)
+                val uris = (0 until fresh.length()).map { fresh.getString(it) }.toSet()
+                if (uris.size < 5) return@launch
+                val merged = _selectedPeers.value + uris
+                _selectedPeers.value = merged
+                savePeers(merged)
+                AppLogger.i("VpnStateViewModel", "Peers refreshed: ${uris.size} new from router")
             } catch (_: Exception) { }
         }
-    }
-
-    private fun parseAndSavePeers(json: String) {
-        try {
-            val obj = org.json.JSONObject(json)
-            val arr = obj.getJSONArray("peers")
-            val uris = (0 until arr.length()).map { arr.getJSONObject(it).getString("uri") }.toSet()
-            if (uris.size < 5) return
-            val merged = (_selectedPeers.value + uris).take(50)
-            _selectedPeers.value = merged
-            savePeers(merged)
-            AppLogger.i("VpnStateViewModel", "Peers refreshed: ${uris.size} new from router")
-        } catch (_: Exception) { }
     }
 }

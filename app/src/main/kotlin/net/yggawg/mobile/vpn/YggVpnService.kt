@@ -360,6 +360,9 @@ class YggVpnService : VpnService() {
             }
             triggerJob.cancel()
             AppLogger.i(TAG, "AWG→Ygg bridge exited after $wgPktCount packet(s)")
+            delay(3000)
+            AppLogger.i(TAG, "Auto-restarting AWG bridge")
+            restartAwg()
         }
     }
 
