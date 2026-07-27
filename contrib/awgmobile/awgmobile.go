@@ -15,7 +15,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"os"
 	"strings"
@@ -262,10 +261,10 @@ func (b *chanBind) Open(port uint16) ([]conn.ReceiveFunc, uint16, error) {
 	recv := func(packets [][]byte, sizes []int, eps []conn.Endpoint) (int, error) {
 		select {
 		case <-b.done:
-			return 0, net.ErrClosed
+			return 0, os.ErrClosed
 		case p, ok := <-b.toRecv:
 			if !ok {
-				return 0, net.ErrClosed
+				return 0, os.ErrClosed
 			}
 			n := copy(packets[0], p)
 			sizes[0] = n
@@ -297,7 +296,7 @@ func (b *chanBind) Send(bufs [][]byte, ep conn.Endpoint) error {
 		select {
 		case b.toSend <- cp:
 		case <-b.done:
-			return net.ErrClosed
+			return os.ErrClosed
 		default: // drop if full
 		}
 	}
