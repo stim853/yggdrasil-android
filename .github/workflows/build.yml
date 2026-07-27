@@ -1,0 +1,101 @@
+name: Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  ANDROID_SDK_ROOT: /opt/android-sdk
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: zulu
+          java-version: 17
+          java-package: jdk
+
+      - name: Check env
+        run: java -version; go version; echo "SDK=$ANDROID_SDK_ROOT"
+
+      - name: Set up Go 1.24
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Setup Android SDK
+        run: |
+          set +e
+          SDK=$ANDROID_SDK_ROOT
+          mkdir -p $SDK/cmdline-tools
+          cd /tmp
+          curl -sLo cmdline-tools.zip 'https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip' || \
+          curl -sLo cmdline-tools.zip 'https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip' || \
+          curl -sLo cmdline-tools.zip 'https://dl.google.com/android/repository/commandlinetools-linux-10406996_latest.zip'
+          unzip -q -o cmdline-tools.zip -d /tmp/cmdline-tools-extracted
+          mkdir -p $SDK/cmdline-tools/latest
+          mv /tmp/cmdline-tools-extracted/cmdline-tools/* $SDK/cmdline-tools/latest/ 2>/dev/null
+          export PATH=$SDK/cmdline-tools/latest/bin:$PATH
+          yes | $SDK/cmdline-tools/latest/bin/sdkmanager --sdk_root=$SDK --licenses 2>&1 || true
+          $SDK/cmdline-tools/latest/bin/sdkmanager --sdk_root=$SDK "platforms;android-35" "build-tools;35.0.0" "ndk;27.2.12479018" 2>&1 || true
+          echo "ANDROID_NDK_HOME=$SDK/ndk/27.2.12479018" >> $GITHUB_ENV
+          echo "ANDROID_HOME=$SDK" >> $GITHUB_ENV
+          set -e
+
+      - name: Setup gomobile
+        run: |
+          export PATH=$HOME/go/bin:$PATH
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          gomobile init
+
+      - name: Clone yggdrasil-go, add AmneziaWG, patch anet
+        run: |
+          cd /tmp
+          git clone --depth=1 --branch v0.5.14 https://github.com/yggdrasil-network/yggdrasil-go.git
+          mkdir -p yggdrasil-go/contrib/awgmobile
+          cp $GITHUB_WORKSPACE/contrib/awgmobile/awgmobile.go yggdrasil-go/contrib/awgmobile/
+          cd yggdrasil-go
+          go get golang.org/x/mobile/bind
+          go get github.com/amnezia-vpn/amneziawg-go@latest
+          go mod tidy
+          mkdir -p /tmp/stubanet
+          printf 'module github.com/wlynxg/anet\ngo 1.21\n' > /tmp/stubanet/go.mod
+          printf 'package anet\nimport "net"\nfunc Interfaces() ([]net.Interface, error) { return net.Interfaces() }\nfunc InterfaceAddrs() ([]net.Addr, error) { return net.InterfaceAddrs() }\nfunc InterfaceAddrsByInterface(ifi *net.Interface) ([]net.Addr, error) { return ifi.Addrs() }\nfunc SetAndroidVersion(uint) {}\n' > /tmp/stubanet/anet.go
+          go mod edit -replace github.com/wlynxg/anet=/tmp/stubanet
+          go mod tidy
+          echo "YGG_DIR=/tmp/yggdrasil-go" >> $GITHUB_ENV
+
+      - name: Build AAR (Yggdrasil + AmneziaWG)
+        run: |
+          export PATH=$HOME/go/bin:$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
+          mkdir -p $GITHUB_WORKSPACE/app/libs
+          cd $YGG_DIR
+          go get -tool golang.org/x/mobile/cmd/gobind 2>/dev/null || true
+          go mod tidy
+          gomobile bind \
+            -target android \
+            -androidapi 26 \
+            -tags mobile \
+            -o $GITHUB_WORKSPACE/app/libs/holowbark.aar \
+            -ldflags="-s -w" \
+            ./contrib/mobile \
+            ./src/config \
+            ./contrib/awgmobile
+
+      - name: Build APK
+        run: |
+          export PATH=$ANDROID_SDK_ROOT/cmdline-tools/latest/bin:$PATH
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: holowbark-apk
+          path: app/build/outputs/apk/debug/*.apk
