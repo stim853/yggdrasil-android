@@ -400,8 +400,7 @@ func BuildUAPISettings(
 	if i5 != "" {
 		fmt.Fprintf(&sb, "i5=%s\n", i5)
 	}
-	// Do NOT put a blank line here: IpcSetOperation treats blank line as end-of-config
-	// and returns before processing the peer section. public_key= signals peer start.
+	fmt.Fprintf(&sb, "\n")
 	fmt.Fprintf(&sb, "public_key=%s\n", publicKeyHex)
 	if presharedKeyHex != "" {
 		fmt.Fprintf(&sb, "preshared_key=%s\n", presharedKeyHex)
