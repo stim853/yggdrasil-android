@@ -19,7 +19,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/amnezia-vpn/amneziawg-go/conn"
 	"github.com/amnezia-vpn/amneziawg-go/device"
