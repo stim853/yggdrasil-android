@@ -339,28 +339,30 @@ class YggVpnService : VpnService() {
             // 4. Bridge loop: AWG outbound WG packets → encapsulate in IPv6 UDP → Yggdrasil
             AppLogger.i(TAG, "AWG→Ygg bridge started, ourAddr=${yggMgr.getAddress()} serverAddr=$addrStr:$serverPort")
 
-            // Trigger WG handshake; repeat every 3 s in a separate job until the first
-            // WG packet arrives (handshake initiated) so we don't hang forever on a single trigger.
-            // Limit to 20 attempts (60s), then fall back to 30s interval to save battery.
+            // Trigger WG handshake; repeat every 3s until first packet, then every 15s as backup.
             val triggerJob = launch {
                 var attempts = 0
                 while (isActive) {
                     AppLogger.d(TAG, "AWG bridge: sending handshake trigger packet (attempt ${++attempts})")
                     awgMgr.writePacket(buildDummyIPv4())
-                    if (attempts < 20) delay(3_000) else delay(30_000)
+                    if (attempts < 20) delay(3_000) else delay(15_000)
                 }
             }
             var wgPktCount = 0
+            var lastRecvTime = 0L
             while (isActive) {
                 val wgPkt = awgMgr.recvWGPacket()
                 if (wgPkt == null) {
-                    // Backend stopped normally — don't restart
                     if (!isActive) break
-                    AppLogger.w(TAG, "AWG bridge: recvWGPacket returned null, retrying in 1s")
+                    // Если долго нет WG пакетов — форсируем handshake триггер
+                    if (lastRecvTime > 0 && System.currentTimeMillis() - lastRecvTime > 20_000) {
+                        AppLogger.w(TAG, "AWG bridge: no packets for 20s, forcing handshake trigger")
+                        awgMgr.writePacket(buildDummyIPv4())
+                    }
                     delay(1_000)
                     continue
                 }
-                if (wgPktCount == 0) triggerJob.cancel()   // handshake initiated — stop sending triggers
+                lastRecvTime = System.currentTimeMillis()
                 wgPktCount++
                 val ourAddrStr   = yggMgr.getAddress()
                 val ourAddrBytes = parseYggSelfAddr(ourAddrStr)
