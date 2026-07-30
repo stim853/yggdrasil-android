@@ -249,6 +249,7 @@ class YggVpnService : VpnService() {
             return
         }
         tunFd = fd
+        builder.setBlocking(true)
 
         val pm = getSystemService(POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "holowbark:vpn").apply {
