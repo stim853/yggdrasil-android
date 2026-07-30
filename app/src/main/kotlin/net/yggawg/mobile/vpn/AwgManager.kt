@@ -33,7 +33,7 @@ class AwgManager(
 ) {
     companion object {
         private const val TAG = "AwgManager"
-        private const val AWG_MTU = 1500L
+        private const val AWG_MTU = 1280L
     }
 
     @Volatile private var backend: Backend? = null

@@ -169,7 +169,7 @@ class YggVpnService : VpnService() {
 
         val builder = Builder()
             .setSession("Holowbark")
-            .setMtu(1500)
+            .setMtu(1280)
 
         // Add WG client address from config (e.g. "10.9.0.2/32")
         awgConfig?.address?.let { addr ->
