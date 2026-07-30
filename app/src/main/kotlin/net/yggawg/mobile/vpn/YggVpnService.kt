@@ -349,20 +349,13 @@ class YggVpnService : VpnService() {
                 }
             }
             var wgPktCount = 0
-            var lastRecvTime = 0L
             while (isActive) {
                 val wgPkt = awgMgr.recvWGPacket()
                 if (wgPkt == null) {
                     if (!isActive) break
-                    // Если долго нет WG пакетов — форсируем handshake триггер
-                    if (lastRecvTime > 0 && System.currentTimeMillis() - lastRecvTime > 20_000) {
-                        AppLogger.w(TAG, "AWG bridge: no packets for 20s, forcing handshake trigger")
-                        awgMgr.writePacket(buildDummyIPv4())
-                    }
-                    delay(1_000)
+                    // Таймаут 30с — просто продолжаем ждать, AWG сам шлёт keepalive
                     continue
                 }
-                lastRecvTime = System.currentTimeMillis()
                 wgPktCount++
                 val ourAddrStr   = yggMgr.getAddress()
                 val ourAddrBytes = parseYggSelfAddr(ourAddrStr)

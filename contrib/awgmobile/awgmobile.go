@@ -19,6 +19,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/amnezia-vpn/amneziawg-go/conn"
 	"github.com/amnezia-vpn/amneziawg-go/device"
@@ -146,6 +147,8 @@ func (b *Backend) RecvWGPacket() []byte {
 		}
 		return p
 	case <-bind.done:
+		return nil
+	case <-time.After(30 * time.Second):
 		return nil
 	}
 }
