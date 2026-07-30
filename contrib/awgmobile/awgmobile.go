@@ -146,7 +146,7 @@ func (b *Backend) RecvWGPacket() []byte {
 			return nil
 		}
 		return p
-	case <-time.After(30 * time.Second):
+	case <-bind.done:
 		return nil
 	}
 }

@@ -7,8 +7,10 @@ import android.net.ConnectivityManager
 import android.net.IpPrefix
 import android.net.LinkAddress
 import android.net.VpnService
+import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.ParcelFileDescriptor
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -67,6 +69,9 @@ class YggVpnService : VpnService() {
     private var savedAwgConfig: AwgConfig? = null
     private var savedAwgServerAddrBytes: ByteArray? = null
     private var savedAwgServerPort: Int = 44555
+
+    private var wakeLock: PowerManager.WakeLock? = null
+    private var wifiLock: WifiManager.WifiLock? = null
 
     @Volatile private var status = TunnelStatus()
 
@@ -245,6 +250,15 @@ class YggVpnService : VpnService() {
         }
         tunFd = fd
 
+        val pm = getSystemService(POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "holowbark:vpn").apply {
+            acquire(4 * 60 * 60 * 1000L)
+        }
+        val wm = applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
+        wifiLock = wm.createWifiLock(WifiManager.WIFI_MODE_FULL, "holowbark:vpn").apply {
+            acquire()
+        }
+
         val routerObj = PacketRouter(tunFd = fd, ygg = yggMgr, awg = awgMgr)
         ygg    = yggMgr
         awg    = awgMgr
@@ -327,11 +341,13 @@ class YggVpnService : VpnService() {
 
             // Trigger WG handshake; repeat every 3 s in a separate job until the first
             // WG packet arrives (handshake initiated) so we don't hang forever on a single trigger.
+            // Limit to 20 attempts (60s), then fall back to 30s interval to save battery.
             val triggerJob = launch {
+                var attempts = 0
                 while (isActive) {
-                    AppLogger.d(TAG, "AWG bridge: sending handshake trigger packet")
+                    AppLogger.d(TAG, "AWG bridge: sending handshake trigger packet (attempt ${++attempts})")
                     awgMgr.writePacket(buildDummyIPv4())
-                    delay(3_000)
+                    if (attempts < 20) delay(3_000) else delay(30_000)
                 }
             }
             var wgPktCount = 0
@@ -373,6 +389,8 @@ class YggVpnService : VpnService() {
         awgLifecycleScope?.cancel(); awgLifecycleScope = null
         savedAwgConfig = null; savedAwgServerAddrBytes = null
         router?.stop(); awg?.stop(); ygg?.stop(); tunFd?.close()
+        wakeLock?.let { if (it.isHeld) it.release() }; wakeLock = null
+        wifiLock?.let { if (it.isHeld) it.release() }; wifiLock = null
         router = null; awg = null; ygg = null; tunFd = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()

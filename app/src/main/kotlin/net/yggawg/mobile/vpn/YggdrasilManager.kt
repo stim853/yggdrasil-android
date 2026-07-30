@@ -16,7 +16,7 @@ class YggdrasilManager(
     private val onStatusChange: (state: LayerState, address: String, peerCount: Int) -> Unit = { _, _, _ -> },
 ) {
     companion object {
-        private const val POLL_INTERVAL_MS = 5_000L
+        private const val POLL_INTERVAL_MS = 30_000L
         private const val PING_TIMEOUT_MS  = 4_000L
     }
 
