@@ -270,6 +270,7 @@ class VpnStateViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             if (_tunnelStatus.value.overall != VpnState.CONNECTED) return@launch
             try {
+                kotlinx.coroutines.delay(10_000)
                 val url = java.net.URL("http://10.100.0.1/peers.json")
                 val json = url.readText()
                 val fresh = org.json.JSONArray(json)
@@ -279,7 +280,9 @@ class VpnStateViewModel(app: Application) : AndroidViewModel(app) {
                 _selectedPeers.value = merged
                 savePeers(merged)
                 AppLogger.i("VpnStateViewModel", "Peers refreshed: ${uris.size} new from router")
-            } catch (_: Exception) { }
+            } catch (e: Exception) {
+                AppLogger.w("VpnStateViewModel", "Peers refresh failed: $e")
+            }
         }
     }
 }

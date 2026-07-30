@@ -158,8 +158,7 @@ class YggdrasilManager(
                 // 3. Everything else → TUN
                 onPacketOut(pkt)
             } catch (e: Exception) {
-                if (scope.isActive) AppLogger.w(TAG, "recv: $e")
-                break
+                AppLogger.w(TAG, "readLoop error: $e — retrying")
             }
         }
         AppLogger.d(TAG, "readLoop exited")

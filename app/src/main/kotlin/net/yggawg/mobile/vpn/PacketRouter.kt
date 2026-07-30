@@ -61,7 +61,7 @@ class PacketRouter(
             val len = try {
                 stream.read(buf)
             } catch (e: Exception) {
-                if (scope.isActive) AppLogger.w(TAG, "TUN read error: $e")
+                if (scope.isActive) { AppLogger.w(TAG, "TUN read error: $e — retrying"); continue }
                 break
             }
             if (len <= 0) continue

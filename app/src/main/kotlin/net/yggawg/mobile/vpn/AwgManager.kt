@@ -113,8 +113,8 @@ class AwgManager(
             val pkt = try {
                 b.recvPacket()
             } catch (e: Exception) {
-                if (scope.isActive) AppLogger.w(TAG, "recvPacket: $e")
-                null
+                if (scope.isActive) { AppLogger.w(TAG, "recvPacket: $e — retrying"); continue }
+                break
             }
             if (pkt != null) {
                 if (firstPacket) {
