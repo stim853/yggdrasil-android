@@ -354,8 +354,11 @@ class YggVpnService : VpnService() {
             while (isActive) {
                 val wgPkt = awgMgr.recvWGPacket()
                 if (wgPkt == null) {
-                    AppLogger.w(TAG, "AWG bridge: recvWGPacket returned null — exiting bridge loop")
-                    break
+                    // Backend stopped normally — don't restart
+                    if (!isActive) break
+                    AppLogger.w(TAG, "AWG bridge: recvWGPacket returned null, retrying in 1s")
+                    delay(1_000)
+                    continue
                 }
                 if (wgPktCount == 0) triggerJob.cancel()   // handshake initiated — stop sending triggers
                 wgPktCount++
@@ -375,10 +378,7 @@ class YggVpnService : VpnService() {
                 yggMgr.writePacket(ipPkt)
             }
             triggerJob.cancel()
-            AppLogger.i(TAG, "AWG→Ygg bridge exited after $wgPktCount packet(s)")
-            delay(3000)
-            AppLogger.i(TAG, "Auto-restarting AWG bridge")
-            restartAwg()
+            AppLogger.i(TAG, "AWG→Ygg bridge finished after $wgPktCount packet(s)")
         }
     }
 
