@@ -241,10 +241,10 @@ func (c *chanTUN) Write(bufs [][]byte, offset int) (int, error) {
 // chanBind routes WireGuard protocol packets through Go channels instead of
 // real UDP sockets. The Kotlin layer bridges these through Yggdrasil.
 type chanBind struct {
-	toSend chan []byte // outbound: AWG → Kotlin → Yggdrasil → server
-	toRecv chan []byte // inbound:  server → Yggdrasil → Kotlin → AWG
-	done   chan struct{}
-	once   sync.Once
+	toSend   chan []byte // outbound: AWG → Kotlin → Yggdrasil → server
+	toRecv   chan []byte // inbound:  server → Yggdrasil → Kotlin → AWG
+	done     chan struct{}
+	closeMu  sync.Mutex
 }
 
 func newChanBind() *chanBind {
@@ -256,12 +256,21 @@ func newChanBind() *chanBind {
 }
 
 func (b *chanBind) close() {
-	b.once.Do(func() { close(b.done) })
+	b.closeMu.Lock()
+	defer b.closeMu.Unlock()
+	select {
+	case <-b.done:
+	default:
+		close(b.done)
+	}
 }
 
 // conn.Bind interface
 
 func (b *chanBind) Open(port uint16) ([]conn.ReceiveFunc, uint16, error) {
+	b.closeMu.Lock()
+	b.done = make(chan struct{})
+	b.closeMu.Unlock()
 	recv := func(packets [][]byte, sizes []int, eps []conn.Endpoint) (int, error) {
 		select {
 		case <-b.done:
@@ -280,11 +289,7 @@ func (b *chanBind) Open(port uint16) ([]conn.ReceiveFunc, uint16, error) {
 }
 
 func (b *chanBind) Close() error {
-	// No-op: BindUpdate() calls closeBindLocked() which calls bind.Close(),
-	// but we don't want to close our channel bind — it's used for the lifetime
-	// of the device. The standard UDP bind needs closing/opening on every
-	// BindUpdate, but ours doesn't. The device will still work because
-	// BindUpdate then calls bind.Open() which returns new ReceiveFuncs.
+	b.close()
 	return nil
 }
 
