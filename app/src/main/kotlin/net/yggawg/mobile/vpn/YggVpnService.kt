@@ -353,7 +353,7 @@ class YggVpnService : VpnService() {
                 val wgPkt = awgMgr.recvWGPacket()
                 if (wgPkt == null) {
                     if (!isActive) break
-                    // Таймаут 30с — просто продолжаем ждать, AWG сам шлёт keepalive
+                    delay(100)
                     continue
                 }
                 wgPktCount++

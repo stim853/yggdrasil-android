@@ -204,9 +204,12 @@ fun buildDummyIPv4(): ByteArray {
     buf.putShort(0)                  // flags + fragment offset
     buf.put(64)                      // TTL
     buf.put(1)                       // protocol = ICMP
-    buf.putShort(0)                  // checksum (0 = let stack handle)
+    buf.putShort(0)                  // checksum placeholder
     buf.put(byteArrayOf(10, 100, 0, 1))   // src: 10.100.0.1 (our TUN address)
     buf.put(byteArrayOf(10, 0, 0, 1))     // dst: 10.0.0.1 (server's VPN IP)
+    // Compute IPv4 header checksum
+    val cksum = ipv4Checksum(buf.array(), 0, 20)
+    buf.putShort(10, cksum)
     // ICMP Echo Request
     buf.put(8)                       // type = Echo Request
     buf.put(0)                       // code
@@ -214,4 +217,16 @@ fun buildDummyIPv4(): ByteArray {
     buf.putShort(1)                  // identifier
     buf.putShort(1)                  // sequence
     return buf.array()
+}
+
+private fun ipv4Checksum(data: ByteArray, offset: Int, len: Int): Short {
+    var sum = 0L
+    var i = offset
+    while (i + 1 < offset + len) {
+        sum += ((data[i].toLong() and 0xFF) shl 8) or (data[i + 1].toLong() and 0xFF)
+        i += 2
+    }
+    if (len % 2 != 0) sum += (data[offset + len - 1].toLong() and 0xFF) shl 8
+    while (sum ushr 16 != 0L) sum = (sum and 0xFFFF) + (sum ushr 16)
+    return (sum.inv() and 0xFFFF).toShort()
 }
